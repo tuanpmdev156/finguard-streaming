@@ -1,0 +1,80 @@
+services:
+  # 1. PostgreSQL 16 — OLTP Reference Database (Customers, Cards, Merchants)
+  finguard-postgres:
+    image: postgres:16-alpine
+    container_name: finguard-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PG_USER:-finguard}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-finguard_pass}
+      POSTGRES_DB: ${PG_DB:-finguard_oltp}
+    ports:
+      - "${PG_PORT:-5432}:5432"
+    volumes:
+      - finguard_postgres_data:/var/lib/postgresql/data
+      - ./postgres/init_tables.sql:/docker-entrypoint-initdb.d/01_init_tables.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-finguard} -d ${PG_DB:-finguard_oltp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - finguard-network
+
+  # 2. Redpanda
+  finguard-redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
+    container_name: finguard-redpanda
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=1G
+      - --overprovisioned
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://finguard-redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr=internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr=internal://finguard-redpanda:8082,external://localhost:18082
+      - --rpc-addr=finguard-redpanda:33145
+      - --advertise-rpc-addr=finguard-redpanda:33145
+    ports:
+      - "19092:19092"
+      - "18082:18082"
+      - "9644:9644"
+    volumes:
+      - finguard_redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - finguard-network
+
+  # 3. Redpanda Console — Web UI for Topics, Messages, Partitions and Consumer Groups
+  finguard-redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.7.2
+    container_name: finguard-redpanda-console
+    restart: unless-stopped
+    depends_on:
+      finguard-redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: finguard-redpanda:9092
+    ports:
+      - "8081:8080"
+    networks:
+      - finguard-network
+
+networks:
+  finguard-network:
+    name: finguard-network
+    driver: bridge
+
+volumes:
+  finguard_postgres_data:
+    name: finguard_postgres_data
+  finguard_redpanda_data:
+    name: finguard_redpanda_data
+
