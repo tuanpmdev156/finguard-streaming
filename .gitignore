@@ -1,0 +1,38 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Environment & Credentials
+.venv
+.env
+credentials/
+*.json
+!package.json
+!package-lock.json
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+
+# Spark & Local Data
+spark-warehouse/
+checkpoints/
+data/
+logs/
+*.log
+
+# dbt
+target/
+dbt_packages/
+profiles.yml
+
+# Airflow
+airflow/logs/*
+airflow/.env
