@@ -1,8 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, time, timezone
+from datetime import date, datetime, timezone
 from faker import Faker
-from datetime import date
 from db_connection import pg_cursor
 import uuid
 import random
@@ -179,67 +178,86 @@ def generate_batch_events(cache: ReferenceCache) -> list[dict]:
     return [build_event(card, merchant, bad_amount, channel, "CORRUPT_RECORD")]
 
 
-def delivery_report(err,_msg) -> None:
-    """Called once for each message produced to indicate delivery result."""
+BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:19092")
+TOPIC = os.getenv("KAFKA_TOPIC_TRANSACTIONS", "fin_transactions")
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse CLI options for streaming rate (--tps) and event limit (--max-events)."""
+    parser = argparse.ArgumentParser(description="FinGuard Real-Time Transaction Producer")
+    parser.add_argument("--tps", type=float, default=2.0, help="Transactions per second (default: 2.0)")
+    parser.add_argument("--max-events", type=int, default=0, help="Stop after N events (0 = infinite)")
+    return parser.parse_args()
+
+
+def delivery_report(err, _msg) -> None:
+    """Kafka callback invoked asynchronously once a message is delivered or fails."""
     if err is not None:
         print(f"[ERROR] Delivery failed: {err}")
 
 
+def send_event(producer, event: dict, index: int) -> None:
+    """Serialize event to JSON, publish to Redpanda partitioned by card_id, and log."""
+    producer.produce(
+        topic=TOPIC,
+        # Use card_id as partition key so all events of the same card land on the same partition
+        key=event["card_id"].encode("utf-8"),
+        value=json.dumps(event).encode("utf-8"),
+        callback=delivery_report,
+    )
+    # Trigger any pending delivery callbacks without blocking
+    producer.poll(0)
+    print(
+        f"[{index:>5}] {event['injected_scenario']:<18} | "
+        f"{event['transaction_channel']:<6} | "
+        f"${event['amount']:>8.2f} | "
+        f"card={event['card_id'][:8]}... | "
+        f"country={event['transaction_country']}"
+    )
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="FinGuard Real-Time Transaction Producer")
-    parser.add_argument("--tps", type=float, default=2.0, help="Transactions per second (default: 2.0)")
-    parser.add_argument("--max-events", type=int, default=0, help="Stop after N events (0 = infinite)")
-    args = parser.parse_args()
-
-    bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:19092")
-    topic = os.getenv("KAFKA_TOPIC_TRANSACTIONS", "fin_transactions")
-
+    """Entry point: load reference cache, initialize Kafka producer, and stream events."""
+    args = parse_args()
     cache = load_reference_cache()
-    
+
     Producer = import_module("confluent_kafka").Producer
     producer = Producer({
-        "bootstrap.servers": bootstrap_servers,
+        "bootstrap.servers": BOOTSTRAP_SERVERS,
         "client.id": "finguard-tx-producer",
         "acks": "all",
     })
 
-    sleep_interval = 1.0 / max(args.tps, 0.1)
-    sent_count = 0
-
-    print(f"Streaming to '{topic}' ({bootstrap_servers}) at ~{args.tps} TPS. Press Ctrl+C to stop.")
+    # Convert TPS (transactions/sec) to sleep seconds between normal events
+    normal_delay = 1.0 / max(args.tps, 0.1)
+    sent = 0
+    print(f"Streaming to '{TOPIC}' ({BOOTSTRAP_SERVERS}) at ~{args.tps} TPS. Press Ctrl+C to stop.")
 
     try:
-        while True:
-            events = generate_batch_events(cache)
-            for event in events:
-                producer.produce(
-                    topic=topic,
-                    key=event["card_id"].encode("utf-8"),
-                    value=json.dumps(event).encode("utf-8"),
-                    callback=delivery_report,
-                )
-                producer.poll(0)
-                sent_count += 1
+        # Keep streaming forever if max_events == 0, otherwise stop once sent reaches max_events
+        while not args.max_events or sent < args.max_events:
+            # Generate 1 event (normal/single fraud) or 4-6 events (VELOCITY_ATTACK burst)
+            batch = generate_batch_events(cache)
 
-                print(
-                    f"[{sent_count:>5}] {event['injected_scenario']:<18} | "
-                    f"{event['transaction_channel']:<6} | "
-                    f"${event['amount']:>8.2f} | "
-                    f"card={event['card_id'][:8]}... | "
-                    f"country={event['transaction_country']}"
-                )
+            # Fire burst events rapidly (0.15s apart) to trigger Spark's velocity window;
+            # otherwise wait according to the configured TPS rate
+            delay = 0.15 if len(batch) > 1 else normal_delay
 
-                if args.max_events and sent_count >= args.max_events:
-                    return
+            for event in batch:
+                sent += 1
+                send_event(producer, event, sent)
 
-                # VELOCITY_ATTACK (0.15s)
-                time.sleep(0.15 if len(events) > 1 else sleep_interval)
+                # Stop immediately inside a burst if we hit the --max-events limit
+                if args.max_events and sent >= args.max_events:
+                    break
 
+                time.sleep(delay)
     except KeyboardInterrupt:
         print("\nStopping producer...")
     finally:
+        # Ensure all buffered messages in memory are delivered to Redpanda before exiting
         producer.flush(timeout=10)
-        print(f"Flushed all messages. Total sent: {sent_count}")
+        print(f"Flushed all messages. Total sent: {sent}")
 
 
 if __name__ == "__main__":
