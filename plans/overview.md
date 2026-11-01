@@ -113,22 +113,23 @@ finguard-streaming/
 ## 5. Chi tiết Kế hoạch Thực thi theo từng Phase
 
 ### Phase 1: Khởi tạo Môi trường, Hạ tầng Cloud & Streaming Cluster
-- [ ] **1.1. Thiết lập môi trường Python với `uv`**:
+- [x] **1.1. Thiết lập môi trường Python với `uv`**:
   - Khởi tạo `pyproject.toml` và `uv.lock` với các thư viện cốt lõi (`pyspark`, `confluent-kafka`, `pyarrow`, `psycopg2-binary`, `faker`, `google-cloud-storage`, `google-cloud-bigquery`, `dbt-bigquery`).
   - Thiết lập `.gitignore`, `.python-version`, và `.env.example`.
-- [ ] **1.2. Cấp phát hạ tầng GCP bằng Terraform (`terraform/`)**:
+- [x] **1.2. Cấp phát hạ tầng GCP bằng Terraform (`terraform/`)**:
   - Khởi tạo GCS Bucket làm Data Lake (`raw/reference/`, `raw/streaming_transactions/`, `checkpoints/`).
   - Khởi tạo 3 BigQuery Datasets theo chuẩn Medallion: `raw`, `staging`, `production`.
   - Tạo Service Account, gán quyền IAM (`Storage Admin`, `BigQuery Admin`) và xuất key về `credentials/pipeline-sa-key.json`.
-- [ ] **1.3. Dựng cụm Streaming & OLTP bằng Docker (`docker/`)**:
+- [x] **1.3. Dựng cụm Streaming & OLTP bằng Docker (`docker/`)**:
   - Viết `docker/docker-compose.streaming.yaml` gồm: **Redpanda** (port `9092`/`19092`), **Redpanda Console** (port `8081`), và **PostgreSQL** (port `5432`).
   - Viết `docker/postgres/init.sql` (PL/pgSQL) tạo schema cho 3 bảng gốc: `customers`, `cards`, `merchants` kèm indexes và constraints.
 
 ---
 
 ### Phase 2: Reference Data Seeding & Real-Time Producer / PySpark Streaming
-- [ ] **2.1. Khởi tạo & Đồng bộ Dữ liệu Tham chiếu (Reference Data)**:
+- [x] **2.1. Khởi tạo & Đồng bộ Dữ liệu Tham chiếu (Reference Data)**:
   - Xây dựng `scripts/seed_postgres.py` dùng `Faker` sinh dữ liệu thực tế cho khách hàng (`customers`), thẻ tín dụng/ghi nợ (`cards` với hạn mức, trạng thái active/blocked) và điểm chấp nhận thanh toán (`merchants`).
+  - Xây dựng `scripts/incremental_postgres.py` giả lập thay đổi incremental (CDC-style): thêm customers/cards/merchants mới, cập nhật risk_profile/địa chỉ, khóa & cấp lại thẻ, thay đổi hạn mức.
   - Xây dựng `scripts/sync_reference_to_gcs.py` trích xuất dữ liệu từ PostgreSQL, kiểm tra schema bằng `PyArrow`, nén thành **Snappy Parquet** và tải lên `gs://<bucket>/raw/reference/`.
 - [ ] **2.2. Xây dựng Real-Time Transaction Producer (`scripts/transaction_producer.py`)**:
   - Sinh giao dịch liên tục từ các kênh `POS`, `ATM`, `Online` và đẩy vào Redpanda topic `fin_transactions`.
