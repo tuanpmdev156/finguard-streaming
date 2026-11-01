@@ -36,3 +36,8 @@ profiles.yml
 # Airflow
 airflow/logs/*
 airflow/.env
+
+# Local refs
+GEMINI.md
+command-note
+technical-note
