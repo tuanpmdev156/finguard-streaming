@@ -15,6 +15,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import psycopg2
 import pyarrow as pa
 import pyarrow.parquet as pq
 import requests
@@ -38,6 +39,12 @@ KAFKA_TOPIC = os.getenv("KAFKA_TOPIC_TRANSACTIONS", "fin_transactions")
 GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 LOCAL_MODE = "--local" in sys.argv
+
+PG_HOST = os.getenv("PG_HOST", "localhost")
+PG_PORT = os.getenv("PG_PORT", "5432")
+PG_USER = os.getenv("PG_USER", "finguard")
+PG_PASSWORD = os.getenv("PG_PASSWORD", "finguard_pass")
+PG_DB = os.getenv("PG_DB", "finguard_oltp")
 
 CHECKPOINT_BASE = Path("data/checkpoints")
 LOCAL_OUTPUT_DIR = Path("data/streaming_transactions")
@@ -95,12 +102,49 @@ def create_spark_session() -> SparkSession:
     )
 
 
-def send_slack_alert(title: str, details: list[str]) -> None:
-    """Send real-time fraud alert."""
+def auto_freeze_cards(card_ids: set[str]) -> set[str]:
+    """Closed-Loop Remediation: Immediately deactivate compromised cards in PostgreSQL OLTP."""
+    if not card_ids:
+        return set()
+    try:
+        conn = psycopg2.connect(
+            host=PG_HOST,
+            port=PG_PORT,
+            user=PG_USER,
+            password=PG_PASSWORD,
+            dbname=PG_DB,
+            connect_timeout=5,
+        )
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE cards
+                    SET is_active = FALSE
+                    WHERE card_id = ANY(%s)
+                    RETURNING card_id
+                    """,
+                    (list(card_ids),),
+                )
+                frozen_ids = {row[0] for row in cur.fetchall()}
+                if frozen_ids:
+                    short_ids = ", ".join(cid[:8] + "..." for cid in frozen_ids)
+                    print(f"🔒 [AUTO-FREEZE] Locked {len(frozen_ids)} card(s) in PostgreSQL OLTP: {short_ids}")
+                return frozen_ids
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"[WARN] Closed-loop auto-freeze failed: {exc}")
+        return set()
+
+
+def send_slack_alert(title: str, summary: str, details: list[str]) -> None:
+    """Send real-time SecOps Case Ticket fraud alert to Slack."""
     if not SLACK_WEBHOOK_URL:
         return
+    body = "\n".join(f"• {line}" for line in details[:10])
     payload = {
-        "text": f"🚨 *{title}*\n" + "\n".join(f"• {line}" for line in details[:10])
+        "text": f"🚨 *{title}*\n{summary}\n{body}"
     }
     try:
         requests.post(SLACK_WEBHOOK_URL, data=json.dumps(payload), timeout=5)
@@ -175,43 +219,82 @@ def process_transactions_batch(batch_df: DataFrame, batch_id: int) -> None:
     target_uri = write_parquet_sink(rows, batch_id)
 
     critical_events = [r for r in rows if r["stream_fraud_flag"]]
+    cards_to_freeze = {
+        r["card_id"] for r in critical_events if r["recommended_action"] == "AUTO_FREEZE_CARD"
+    }
+    frozen_cards = auto_freeze_cards(cards_to_freeze)
+
     print(
         f"[Batch {batch_id:>4}] Processed {len(rows):>4} tx | "
-        f"Critical Fraud: {len(critical_events):>3} | Sink: {target_uri}"
+        f"Critical Fraud: {len(critical_events):>3} | "
+        f"Auto-Frozen Cards: {len(frozen_cards):>2} | Sink: {target_uri}"
     )
 
     if critical_events:
-        alert_lines = [
-            f"`{r['stream_fraud_reason']}` -> `{r['recommended_action']}` | Card: `{r['card_id'][:8]}...` | "
-            f"Amount: `${r['amount']:,.2f}` | Channel: `{r['transaction_channel']}` ({r['transaction_country']})"
-            for r in critical_events
-        ]
+        total_exposure = sum(r["amount"] for r in critical_events)
+        summary = (
+            f"📋 *SecOps Case Summary* — Incidents: `{len(critical_events)}` | "
+            f"Fraud Exposure: `${total_exposure:,.2f}` | "
+            f"Cards Auto-Frozen: `{len(frozen_cards)}/{len(cards_to_freeze)}`"
+        )
+        alert_lines = []
+        for r in critical_events:
+            severity = (
+                "CRITICAL"
+                if r["stream_fraud_reason"] in ("VELOCITY_ATTACK", "HIGH_AMOUNT_SPIKE")
+                else "HIGH"
+            )
+            freeze_status = (
+                "🔒 FROZEN"
+                if r["card_id"] in frozen_cards
+                else ("⏳ PENDING_FREEZE" if r["recommended_action"] == "AUTO_FREEZE_CARD" else "N/A")
+            )
+            alert_lines.append(
+                f"[{severity}] `{r['stream_fraud_reason']}` -> `{r['recommended_action']}` | "
+                f"Card: `{r['card_id'][:8]}...` ({freeze_status}) | "
+                f"Exposure: `${r['amount']:,.2f}` | "
+                f"Channel: `{r['transaction_channel']}` ({r['transaction_country']})"
+            )
         send_slack_alert(
-            title=f"FinGuard Real-Time Fraud Alert (Batch #{batch_id} — {len(critical_events)} incidents)",
+            title=f"FinGuard Real-Time SecOps Fraud Ticket (Batch #{batch_id})",
+            summary=summary,
             details=alert_lines,
         )
 
 
 def process_velocity_window_batch(window_df: DataFrame, batch_id: int) -> None:
-    """Stateful sliding window processor: detect cross-batch Velocity Attacks."""
+    """Stateful sliding window processor: detect cross-batch Velocity Attacks & auto-freeze cards."""
     if window_df.isEmpty():
         return
 
     alerts = window_df.collect()
+    cards_to_freeze = {row["card_id"] for row in alerts}
+    frozen_cards = auto_freeze_cards(cards_to_freeze)
+    total_window_exposure = sum(row["total_amount"] for row in alerts)
+
     alert_lines = []
     for row in alerts:
         w_start = row["window"]["start"].strftime("%H:%M:%S")
         w_end = row["window"]["end"].strftime("%H:%M:%S")
+        freeze_status = "🔒 FROZEN" if row["card_id"] in frozen_cards else "⏳ PENDING_FREEZE"
         msg = (
-            f"Window `[{w_start} - {w_end}]` | Card: `{row['card_id'][:8]}...` | "
-            f"Tx Count: `{row['tx_count']}` | Total: `${row['total_amount']:,.2f}`"
+            f"[CRITICAL] Window `[{w_start} - {w_end}]` | "
+            f"Card: `{row['card_id'][:8]}...` ({freeze_status}) | "
+            f"Tx Count: `{row['tx_count']}` | Exposure: `${row['total_amount']:,.2f}` | "
+            f"Action: `AUTO_FREEZE_CARD`"
         )
         print(f"🚨 [VELOCITY WINDOW ALERT] {msg}")
         alert_lines.append(msg)
 
     if alert_lines:
+        summary = (
+            f"📋 *SecOps Velocity Ticket* — Windows Breached: `{len(alerts)}` | "
+            f"Window Fraud Exposure: `${total_window_exposure:,.2f}` | "
+            f"Cards Auto-Frozen: `{len(frozen_cards)}/{len(cards_to_freeze)}`"
+        )
         send_slack_alert(
             title=f"FinGuard Stateful Velocity Window Alert (Batch #{batch_id})",
+            summary=summary,
             details=alert_lines,
         )
 
