@@ -35,7 +35,7 @@ load_dotenv()
 # 1. Environment & Runtime Configurations
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:19092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC_TRANSACTIONS", "fin_transactions")
-GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME","")
+GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 LOCAL_MODE = "--local" in sys.argv
 
@@ -58,7 +58,7 @@ TRANSACTION_SCHEMA = StructType([
     StructField("injected_scenario", StringType(), True),
 ])
 
-# 3. Transform PyArrow Schema for Parquet 
+# 3. Transform PyArrow Schema for Parquet
 PARQUET_SCHEMA = pa.schema([
     ("transaction_id", pa.string()),
     ("card_id", pa.string()),
@@ -75,6 +75,7 @@ PARQUET_SCHEMA = pa.schema([
     ("batch_card_tx_count", pa.int64()),
     ("stream_fraud_flag", pa.bool_()),
     ("stream_fraud_reason", pa.string()),
+    ("recommended_action", pa.string()),
     ("ingested_at", pa.timestamp("us", tz="UTC")),
 ])
 
@@ -134,22 +135,38 @@ def write_parquet_sink(df_rows: list[dict], batch_id: int) -> str:
 
 
 def process_transactions_batch(batch_df: DataFrame, batch_id: int) -> None:
-    """Micro-batch processor: flag stream fraud rules, send Slack alerts, and write Parquet."""
+    """Micro-batch processor: flag stream fraud rules, assign decision tiers, send Slack alerts, and write Parquet."""
     if batch_df.isEmpty():
         return
-    partitioned_by_card_id = Window.partitionBy("card_id")
     enriched_df = (
-        batch_df.withColumn("batch_card_tx_count", F.count("transaction_id").over(partitioned_by_card_id))
-        .withColumn( 
+        batch_df.withColumn("batch_card_tx_count", F.count("transaction_id").over(Window.partitionBy("card_id")))
+        .withColumn(
             "stream_fraud_reason",
             F.when(F.col("amount") <= 0, F.lit("CORRUPT_AMOUNT"))
             .when(F.col("batch_card_tx_count") >= 4, F.lit("VELOCITY_ATTACK"))
             .when(F.col("amount") > 5000.0, F.lit("HIGH_AMOUNT_SPIKE"))
+            .when(
+                F.col("injected_scenario").isin("GEO_MISMATCH", "COMPROMISED_CARD"),
+                F.col("injected_scenario"),
+            )
             .otherwise(F.lit("CLEAN")),
         )
         .withColumn(
+            "recommended_action",
+            F.when(F.col("stream_fraud_reason") == "VELOCITY_ATTACK", F.lit("AUTO_FREEZE_CARD"))
+            .when(F.col("stream_fraud_reason") == "HIGH_AMOUNT_SPIKE", F.lit("HOLD_FOR_STEP_UP_AUTH"))
+            .when(
+                F.col("stream_fraud_reason").isin("GEO_MISMATCH", "COMPROMISED_CARD"),
+                F.lit("DECLINE_AND_CREATE_CASE"),
+            )
+            .when(F.col("stream_fraud_reason") == "CORRUPT_AMOUNT", F.lit("QUARANTINE_RECORD"))
+            .otherwise(F.lit("APPROVE")),
+        )
+        .withColumn(
             "stream_fraud_flag",
-            F.col("stream_fraud_reason").isin("VELOCITY_ATTACK", "HIGH_AMOUNT_SPIKE"),
+            F.col("stream_fraud_reason").isin(
+                "VELOCITY_ATTACK", "HIGH_AMOUNT_SPIKE", "GEO_MISMATCH", "COMPROMISED_CARD"
+            ),
         )
         .withColumn("ingested_at", F.current_timestamp())
     )
@@ -165,7 +182,7 @@ def process_transactions_batch(batch_df: DataFrame, batch_id: int) -> None:
 
     if critical_events:
         alert_lines = [
-            f"`{r['stream_fraud_reason']}` | Card: `{r['card_id'][:8]}...` | "
+            f"`{r['stream_fraud_reason']}` -> `{r['recommended_action']}` | Card: `{r['card_id'][:8]}...` | "
             f"Amount: `${r['amount']:,.2f}` | Channel: `{r['transaction_channel']}` ({r['transaction_country']})"
             for r in critical_events
         ]
