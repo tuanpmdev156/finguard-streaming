@@ -59,8 +59,8 @@ services:
       GCP_PROJECT_ID: ${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-finguard-streaming-291026-bucket}
       BQ_DATASET_RAW: ${BQ_DATASET_RAW:-finguard_raw}
-      PG_HOST: ${PG_HOST:-finguard-postgres}
-      PG_PORT: ${PG_PORT:-5432}
+      PG_HOST: finguard-postgres
+      PG_PORT: 5432
       PG_USER: ${PG_USER:-finguard}
       PG_PASSWORD: ${PG_PASSWORD:-finguard_pass}
       PG_DB: ${PG_DB:-finguard_oltp}
@@ -114,8 +114,8 @@ services:
       GCP_PROJECT_ID: ${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-finguard-streaming-291026-bucket}
       BQ_DATASET_RAW: ${BQ_DATASET_RAW:-finguard_raw}
-      PG_HOST: ${PG_HOST:-finguard-postgres}
-      PG_PORT: ${PG_PORT:-5432}
+      PG_HOST: finguard-postgres
+      PG_PORT: 5432
       PG_USER: ${PG_USER:-finguard}
       PG_PASSWORD: ${PG_PASSWORD:-finguard_pass}
       PG_DB: ${PG_DB:-finguard_oltp}

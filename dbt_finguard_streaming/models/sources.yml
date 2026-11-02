@@ -1,0 +1,17 @@
+version: 2
+
+sources:
+  - name: raw
+    database: "{{ env_var('GCP_PROJECT_ID', 'fraud-risk-analytics-131026') }}"
+    schema: "{{ env_var('BQ_DATASET_RAW', 'finguard_raw') }}"
+    description: "Raw External Tables in BigQuery pointing to GCS Snappy Parquet (PostgreSQL Reference Data & PySpark Streaming)."
+    tables:
+      - name: ext_customers
+        description: "Customer reference profiles synced from PostgreSQL OLTP."
+      - name: ext_cards
+        description: "Payment cards reference data (credit limit, active status, expiry) synced from PostgreSQL OLTP."
+      - name: ext_merchants
+        description: "Merchant directory with MCC codes and risk flags synced from PostgreSQL OLTP."
+      - name: ext_streaming_transactions
+        description: "Real-time payment transactions micro-batches enriched and written by PySpark Structured Streaming."
+

@@ -1,0 +1,105 @@
+version: 2
+
+models:
+  - name: stg_customers
+    description: "Cleaned and deduplicated customer reference view."
+    columns:
+      - name: customer_id
+        description: "Primary key for customer."
+        data_tests:
+          - unique
+          - not_null
+      - name: risk_profile
+        description: "Customer static risk tier."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['LOW', 'MEDIUM', 'HIGH']
+
+  - name: stg_cards
+    description: "Cleaned and deduplicated payment cards reference view."
+    columns:
+      - name: card_id
+        description: "Primary key for payment card."
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: "Foreign key to stg_customers."
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
+      - name: card_brand
+        description: "Card network brand."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['Visa', 'Mastercard', 'Amex']
+      - name: card_type
+        description: "Payment card funding type."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['CREDIT', 'DEBIT', 'PREPAID']
+
+  - name: stg_merchants
+    description: "Cleaned and deduplicated merchant directory view."
+    columns:
+      - name: merchant_id
+        description: "Primary key for merchant."
+        data_tests:
+          - unique
+          - not_null
+      - name: mcc_code
+        description: "Merchant Category Code."
+        data_tests:
+          - not_null
+
+  - name: stg_transactions
+    description: "Cleaned, validated, and deduplicated streaming transactions."
+    columns:
+      - name: transaction_id
+        description: "Unique streaming transaction identifier."
+        data_tests:
+          - unique
+          - not_null
+      - name: card_id
+        description: "Foreign key to card."
+        data_tests:
+          - not_null
+      - name: customer_id
+        description: "Foreign key to customer."
+        data_tests:
+          - not_null
+      - name: merchant_id
+        description: "Foreign key to merchant."
+        data_tests:
+          - not_null
+      - name: amount_tier
+        description: "Classified transaction amount bucket."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['micro', 'low', 'medium', 'high', 'critical']
+      - name: transaction_channel
+        description: "Payment acquisition channel."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['POS', 'ATM', 'Online']
+
+  - name: stg_quarantined_transactions
+    description: "Isolated records failing amount or key integrity checks."
+    columns:
+      - name: quarantine_reason
+        description: "Reason the record was routed to quarantine."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                - 'MISSING_MANDATORY_KEY'
+                - 'CORRUPT_NON_POSITIVE_AMOUNT'
+                - 'INVALID_CURRENCY_CODE'
+                - 'OTHER_SCHEMA_VIOLATION'

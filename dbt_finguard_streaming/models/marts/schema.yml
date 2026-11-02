@@ -1,0 +1,117 @@
+version: 2
+
+models:
+  - name: fct_streaming_transactions
+    description: "Central fact table enriching streaming transactions with customer, card, and merchant dimensions and multi-layer fraud scoring."
+    columns:
+      - name: transaction_id
+        description: "Unique transaction primary key."
+        data_tests:
+          - unique
+          - not_null
+      - name: card_id
+        description: "Payment card identifier."
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_cards')
+              field: card_id
+      - name: customer_id
+        description: "Cardholder customer identifier."
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
+      - name: merchant_id
+        description: "Acquiring merchant identifier."
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_merchants')
+              field: merchant_id
+      - name: transaction_date
+        description: "Partition date of the transaction."
+        data_tests:
+          - not_null
+      - name: amount
+        description: "Transaction payment amount in USD."
+        data_tests:
+          - not_null
+      - name: transaction_channel
+        description: "Payment channel (POS, ATM, Online)."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['POS', 'ATM', 'Online']
+      - name: card_brand
+        description: "Payment card brand."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['Visa', 'Mastercard', 'Amex']
+      - name: risk_tier
+        description: "Computed fraud risk tier."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+      - name: is_fraud
+        description: "Binary fraud indicator (1 = fraud, 0 = legitimate)."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+              quote: false
+      - name: recommended_action
+        description: "Automated decision tier action from stream processor."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                - 'APPROVE'
+                - 'AUTO_FREEZE_CARD'
+                - 'HOLD_FOR_STEP_UP_AUTH'
+                - 'DECLINE_AND_CREATE_CASE'
+                - 'QUARANTINE_RECORD'
+
+  - name: mart_fraud_risk_summary
+    description: "Aggregated fraud KPIs by date, hour, channel, card brand, merchant category, and country."
+    columns:
+      - name: transaction_date
+        description: "Transaction date partition grain."
+        data_tests:
+          - not_null
+      - name: total_transactions
+        description: "Total count of transactions in grain."
+        data_tests:
+          - not_null
+      - name: fraud_rate
+        description: "Fraud rate percentage (0 to 100)."
+        data_tests:
+          - not_null
+      - name: total_amount
+        description: "Total transaction volume in USD."
+        data_tests:
+          - not_null
+
+  - name: mart_velocity_incidents
+    description: "SecOps incident audit table containing flagged fraudulent and velocity-attack transactions."
+    columns:
+      - name: transaction_id
+        description: "Unique incident transaction identifier."
+        data_tests:
+          - unique
+          - not_null
+      - name: card_id
+        description: "Compromised card identifier."
+        data_tests:
+          - not_null
+      - name: stream_fraud_reason
+        description: "Primary fraud rule triggered."
+        data_tests:
+          - not_null
+      - name: recommended_action
+        description: "Automated remediation action triggered."
+        data_tests:
+          - not_null
