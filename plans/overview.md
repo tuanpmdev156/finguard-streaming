@@ -58,6 +58,7 @@ flowchart LR
     PG -->|"Sync Reference Data"| AF
     GEN -->|"Stream JSON Events"| RP
     RP --> SPARK
+    SPARK -.->|"Auto-Freeze Card (is_active=false)"| PG
     SPARK -->|"High-Risk Event"| SLACK_RT
     SPARK -->|"Micro-batch Parquet"| GCS
     AF -->|"External/Native Load"| BQ_RAW
@@ -131,7 +132,7 @@ finguard-streaming/
   - Xây dựng `scripts/seed_postgres.py` dùng `Faker` sinh dữ liệu thực tế cho khách hàng (`customers`), thẻ tín dụng/ghi nợ (`cards` với hạn mức, trạng thái active/blocked) và điểm chấp nhận thanh toán (`merchants`).
   - Xây dựng `scripts/incremental_postgres.py` giả lập thay đổi incremental (CDC-style): thêm customers/cards/merchants mới, cập nhật risk_profile/địa chỉ, khóa & cấp lại thẻ, thay đổi hạn mức.
   - Xây dựng `scripts/sync_reference_to_gcs.py` trích xuất dữ liệu từ PostgreSQL, kiểm tra schema bằng `PyArrow`, nén thành **Snappy Parquet** và tải lên `gs://<bucket>/raw/reference/`.
-- [ ] **2.2. Xây dựng Real-Time Transaction Producer (`scripts/transaction_producer.py`)**:
+- [x] **2.2. Xây dựng Real-Time Transaction Producer (`scripts/transaction_producer.py`)**:
   - Sinh giao dịch liên tục từ các kênh `POS`, `ATM`, `Online` và đẩy vào Redpanda topic `fin_transactions`.
   - Tích hợp bộ mô phỏng kịch bản gian lận (**Fraud Injection Scenarios**):
     - **Velocity Attack**: Cùng 1 `card_id` thực hiện >= 4 giao dịch chỉ trong 1–2 phút.
@@ -141,7 +142,14 @@ finguard-streaming/
 - [ ] **2.3. Xây dựng PySpark Structured Streaming Engine (`spark/streaming_fraud_processor.py`)**:
   - Kết nối vào Redpanda topic `fin_transactions`, parse JSON payload với `StructType` chặt chẽ.
   - Áp dụng `withWatermark("transaction_timestamp", "2 minutes")` và `groupBy(window(...), col("card_id"))` để phát hiện **Velocity Fraud** ngay trên luồng.
-  - Gắn cờ rủi ro (`stream_fraud_flag`, `stream_fraud_reason`) và bắn **Real-Time Slack Alert** đối với các giao dịch mức `CRITICAL`.
+  - **Tích hợp 3 Hành động Phản ứng Nghiệp vụ Tự động (`Automated Fraud Remediation Actions`)**:
+    1. **Phân tầng Quyết định Tự động (`Automated Decision Tiering`)**: Gắn nhãn `stream_fraud_flag`, `stream_fraud_reason` và `recommended_action` cho từng mức độ rủi ro:
+       - `VELOCITY_ATTACK` ($\ge 4$ giao dịch / 2 phút) $\rightarrow$ `AUTO_FREEZE_CARD` (Khóa thẻ khẩn cấp).
+       - `HIGH_AMOUNT_SPIKE` (`amount > $5,000`) $\rightarrow$ `HOLD_FOR_STEP_UP_AUTH` (Tạm giữ quyết toán chờ xác thực 3DS/OTP).
+       - `GEO_MISMATCH` / `COMPROMISED_CARD` $\rightarrow$ `DECLINE_AND_CREATE_CASE` (Chặn giao dịch & đẩy vào bảng điều tra `mart_velocity_incidents`).
+       - `CORRUPT_AMOUNT` (`amount <= 0`) $\rightarrow$ `QUARANTINE_RECORD` (Cô lập sang `stg_quarantined_transactions`).
+    2. **Khép kín vòng lặp Khóa Thẻ Tự động (`Closed-Loop Auto Card Freeze`)**: Khi phát hiện `VELOCITY_ATTACK`, Spark tự động gọi về PostgreSQL OLTP thực thi `UPDATE cards SET is_active = FALSE` để vô hiệu hóa thẻ bị xâm phạm ngay lập tức.
+    3. **Cảnh báo SecOps theo chuẩn Case Ticket (`Slack Fraud Ops Alert`)**: Bắn **Real-Time Slack Alert** đối với các sự kiện `CRITICAL`/`HIGH` kèm chi tiết mã thẻ, kênh thanh toán, quốc gia, tổng tiền rủi ro (`Fraud Exposure $`) và trạng thái khóa thẻ tự động.
   - Ghi dữ liệu micro-batch (`trigger(processingTime="30 seconds")`) dưới định dạng **Snappy Parquet** xuống `gs://<bucket>/raw/streaming_transactions/` cùng cơ chế fault-tolerance qua `checkpointLocation`.
 
 ---
