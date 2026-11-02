@@ -1,0 +1,114 @@
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: finguard-airflow:2.10.4
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@airflow-postgres:5432/${POSTGRES_DB:-airflow}
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqJZPo=}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY:-finguard_secret_key_291026}
+    GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/credentials/pipeline-sa-key.json
+    AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: google-cloud-platform://?key_path=/opt/airflow/credentials/pipeline-sa-key.json&project=${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
+    GCP_PROJECT_ID: ${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
+    GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-finguard-streaming-291026-bucket}
+    BQ_DATASET_RAW: ${BQ_DATASET_RAW:-finguard_raw}
+    # Connect directly to finguard-postgres container via finguard-network
+    PG_HOST: ${PG_HOST:-finguard-postgres}
+    PG_PORT: ${PG_PORT:-5432}
+    PG_USER: ${PG_USER:-finguard}
+    PG_PASSWORD: ${PG_PASSWORD:-finguard_pass}
+    PG_DB: ${PG_DB:-finguard_oltp}
+    PYTHONPATH: /opt/airflow:/opt/airflow/scripts
+    DBT_PROFILES_DIR: /opt/airflow/dbt
+    SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    GITHUB_REPO: ${GITHUB_REPO:-tuanpmdev156/finguard-streaming}
+    GITHUB_WORKFLOW_FILE: ${GITHUB_WORKFLOW_FILE:-deploy-evidence.yml}
+    GITHUB_BRANCH: ${GITHUB_BRANCH:-main}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ../data:/opt/airflow/data
+    - ../credentials:/opt/airflow/credentials:ro
+    - ../scripts:/opt/airflow/scripts:ro
+    - ../dbt_finguard_streaming:/opt/airflow/dbt
+  networks:
+    - default
+    - finguard-network
+
+services:
+  airflow-postgres:
+    image: postgres:16-alpine
+    container_name: finguard-airflow-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+    volumes:
+      - airflow-pg-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: finguard-airflow-init
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-admin}
+    command: version
+    restart: on-failure
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: finguard-airflow-webserver
+    restart: always
+    command: webserver
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: finguard-airflow-scheduler
+    restart: always
+    command: scheduler
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+networks:
+  finguard-network:
+    external: true
+
+volumes:
+  airflow-pg-volume:
+
