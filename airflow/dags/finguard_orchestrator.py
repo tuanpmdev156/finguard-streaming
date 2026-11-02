@@ -127,6 +127,9 @@ def sync_reference_data_to_gcs(**context) -> None:
     if SIMULATE_FAIL_TASK == "sync_reference_to_gcs":
         raise RuntimeError("SIMULATED ERROR at sync_reference_to_gcs")
 
+    if os.environ.get("PG_HOST") in (None, "", "localhost", "127.0.0.1"):
+        os.environ["PG_HOST"] = "finguard-postgres"
+
     from scripts.ingest_to_gcs import main as run_ingest_to_gcs
 
     # Ensure --local flag is not passed when running inside Airflow
