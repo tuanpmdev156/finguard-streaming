@@ -1,8 +1,0 @@
-topic:
-    - 3 Partitions:
-        - Tối đa 3 tasks xử lý song song cùng lúc.
-        - Đủ để rải đều các thẻ khác nhau, nhưng vẫn đảm bảo toàn bộ giao dịch của cùng 1 card_id luôn vào đúng 1 partition để bắt gian lận Velocity.
-    - Không chọn 1 Partition: tránh nghẽn đơn luồng và để demo kiến trúc phân tán 
-    - Không chọn (10-20) partitions: 
-        - CPU/RAM trên máy local
-        - Tránh sinh ra quá nhiều file Parquet siêu nhỏ gây chậm BigQuery
