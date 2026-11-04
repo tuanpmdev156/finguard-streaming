@@ -4,13 +4,13 @@ output "gcs_bucket_url" {
 }
 
 output "service_account_email" {
-  description = "Pipeline Service Account email"
-  value       = data.google_service_account.pipeline_sa.email
+  description = "Service Account email"
+  value       = data.google_service_account.finguard-sa.email
 }
 
 output "sa_key_path" {
   description = "Path to Service Account JSON key file"
-  value       = "${path.module}/../credentials/pipeline-sa-key.json"
+  value       = "${path.module}/../credentials/finguard-sa-key.json"
 }
 
 output "bq_dataset_raw" {

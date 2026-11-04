@@ -17,25 +17,25 @@ variable "gcs_bucket_name" {
 variable "bq_dataset_raw" {
   description = "BigQuery dataset for raw data"
   type        = string
-  default     = "finguard_raw"
+  default     = "raw"
 }
 
 variable "bq_dataset_staging" {
   description = "BigQuery dataset for staging (dbt views & quarantine)"
   type        = string
-  default     = "finguard_staging"
+  default     = "staging"
 }
 
 variable "bq_dataset_production" {
   description = "BigQuery dataset for production marts"
   type        = string
-  default     = "finguard_production"
+  default     = "production"
 }
 
 variable "service_account_id" {
   description = "Existing Service Account ID for pipeline automation"
   type        = string
-  default     = "pipeline-sa"
+  default     = "finguard-sa"
 }
 
 variable "gcp_api_services" {

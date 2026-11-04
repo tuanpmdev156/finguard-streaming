@@ -50,52 +50,52 @@ resource "google_bigquery_dataset" "production" {
   delete_contents_on_destroy = true
 }
 
-# 3. Reference Existing Pipeline Service Account (credentials/pipeline-sa-key.json)
-data "google_service_account" "pipeline_sa" {
+# 3. Reference Existing Pipeline Service Account (credentials/finguard-sa-key.json)
+data "google_service_account" "finguard-sa" {
   account_id = var.service_account_id
   project    = var.project_id
 }
 
 # IAM: GCS Storage Admin — read/write/manage bucket & external table files
-resource "google_project_iam_member" "pipeline_sa_storage" {
+resource "google_project_iam_member" "finguard-sa_storage" {
   project = var.project_id
   role    = "roles/storage.admin"
-  member  = "serviceAccount:${data.google_service_account.pipeline_sa.email}"
+  member  = "serviceAccount:${data.google_service_account.finguard-sa.email}"
 }
 
 # IAM: BigQuery Admin — manage external tables, datasets, dbt models, and jobs
-resource "google_project_iam_member" "pipeline_sa_bigquery" {
+resource "google_project_iam_member" "finguard-sa_bigquery" {
   project = var.project_id
   role    = "roles/bigquery.admin"
-  member  = "serviceAccount:${data.google_service_account.pipeline_sa.email}"
+  member  = "serviceAccount:${data.google_service_account.finguard-sa.email}"
 }
 
 # IAM: Cloud Logging Writer — allow VM containers/agents to write logs
-resource "google_project_iam_member" "pipeline_sa_logging" {
+resource "google_project_iam_member" "finguard-sa_logging" {
   project = var.project_id
   role    = "roles/logging.logWriter"
-  member  = "serviceAccount:${data.google_service_account.pipeline_sa.email}"
+  member  = "serviceAccount:${data.google_service_account.finguard-sa.email}"
 }
 
 # IAM: Cloud Monitoring Metric Writer — allow VM to publish metrics
-resource "google_project_iam_member" "pipeline_sa_monitoring" {
+resource "google_project_iam_member" "finguard-sa_monitoring" {
   project = var.project_id
   role    = "roles/monitoring.metricWriter"
-  member  = "serviceAccount:${data.google_service_account.pipeline_sa.email}"
+  member  = "serviceAccount:${data.google_service_account.finguard-sa.email}"
 }
 
 # IAM: Secret Manager Secret Accessor — allow VM to fetch DB password & secrets
-resource "google_project_iam_member" "pipeline_sa_secret_accessor" {
+resource "google_project_iam_member" "finguard-sa_secret_accessor" {
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${data.google_service_account.pipeline_sa.email}"
+  member  = "serviceAccount:${data.google_service_account.finguard-sa.email}"
 }
 
 # IAM: Cloud SQL Client — allow Cloud SQL Auth Proxy on VM to connect to Cloud SQL via IAM
-resource "google_project_iam_member" "pipeline_sa_cloudsql_client" {
+resource "google_project_iam_member" "finguard-sa_cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
-  member  = "serviceAccount:${data.google_service_account.pipeline_sa.email}"
+  member  = "serviceAccount:${data.google_service_account.finguard-sa.email}"
 }
 
 # 4. Firewall: Allow SSH only via Google Cloud IAP (35.235.240.0/20)
@@ -138,7 +138,7 @@ resource "google_compute_instance" "finguard_vm" {
   }
 
   service_account {
-    email  = data.google_service_account.pipeline_sa.email
+    email  = data.google_service_account.finguard-sa.email
     scopes = ["cloud-platform"]
   }
 
@@ -159,10 +159,10 @@ resource "google_compute_instance" "finguard_vm" {
 
   depends_on = [
     google_project_service.apis,
-    google_project_iam_member.pipeline_sa_logging,
-    google_project_iam_member.pipeline_sa_monitoring,
-    google_project_iam_member.pipeline_sa_secret_accessor,
-    google_project_iam_member.pipeline_sa_cloudsql_client,
+    google_project_iam_member.finguard-sa_logging,
+    google_project_iam_member.finguard-sa_monitoring,
+    google_project_iam_member.finguard-sa_secret_accessor,
+    google_project_iam_member.finguard-sa_cloudsql_client,
   ]
 }
 
