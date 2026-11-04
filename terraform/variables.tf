@@ -48,3 +48,59 @@ variable "gcp_api_services" {
     "sqladmin.googleapis.com",      # Cloud SQL + Auth Proxy
   ]
 }
+
+# --- Phase 1: Compute (GCE VM) Variables ---
+
+variable "zone" {
+  description = "GCP zone for GCE VM"
+  type        = string
+  default     = "us-central1-a"
+}
+
+variable "vm_name" {
+  description = "Name of the GCE VM instance"
+  type        = string
+  default     = "finguard-vm"
+}
+
+variable "vm_machine_type" {
+  description = "Machine type for GCE VM (minimum 16GB RAM for Spark + Airflow + Redpanda)"
+  type        = string
+  default     = "e2-standard-4"
+}
+
+variable "vm_disk_size_gb" {
+  description = "Boot disk size in GB"
+  type        = number
+  default     = 50
+}
+
+variable "vm_use_spot" {
+  description = "Use Spot VM to reduce compute cost by ~60-70%"
+  type        = bool
+  default     = false
+}
+
+variable "git_repo_url" {
+  description = "Git repository URL cloned on VM startup"
+  type        = string
+  default     = "https://github.com/tuanpmdev156/finguard-streaming.git"
+}
+
+variable "git_repo_branch" {
+  description = "Git branch to checkout on VM startup"
+  type        = string
+  default     = "main"
+}
+
+variable "vm_app_dir" {
+  description = "Directory on VM where repository is cloned"
+  type        = string
+  default     = "/opt/finguard-streaming"
+}
+
+variable "vm_app_user" {
+  description = "Linux user created on VM to own the repo and run Docker"
+  type        = string
+  default     = "finguard"
+}
