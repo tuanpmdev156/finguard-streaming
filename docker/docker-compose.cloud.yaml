@@ -1,0 +1,282 @@
+services:
+  # 1. Cloud SQL Auth Proxy — Secure IAM + TLS tunnel from VM to Cloud SQL Postgres 16
+  cloud-sql-proxy:
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2
+    container_name: cloud-sql-proxy
+    restart: unless-stopped
+    command:
+      - "--address=0.0.0.0"
+      - "--port=5432"
+      - "--health-check"
+      - "--http-address=0.0.0.0"
+      - "--http-port=9090"
+      - "${CLOUDSQL_CONNECTION_NAME}"
+    healthcheck:
+      test: ["CMD", "/cloud-sql-proxy", "wait", "--http-address=localhost", "--http-port=9090", "--max-wait=5s"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - finguard-network
+
+  # 2. Redpanda Broker
+  finguard-redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
+    container_name: finguard-redpanda
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=1G
+      - --overprovisioned
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://finguard-redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr=internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr=internal://finguard-redpanda:8082,external://localhost:18082
+      - --rpc-addr=finguard-redpanda:33145
+      - --advertise-rpc-addr=finguard-redpanda:33145
+    volumes:
+      - finguard_redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - finguard-network
+
+  # 3. Redpanda Console — Bound to 127.0.0.1 for IAP SSH port-forwarding only
+  finguard-redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.7.2
+    container_name: finguard-redpanda-console
+    restart: unless-stopped
+    depends_on:
+      finguard-redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: finguard-redpanda:9092
+    ports:
+      - "127.0.0.1:8081:8080"
+    networks:
+      - finguard-network
+
+  # 4. Transaction Producer (runs 24/7)
+  finguard-producer:
+    build:
+      context: ..
+      dockerfile: docker/producer/Dockerfile
+    image: finguard-producer:latest
+    container_name: finguard-producer
+    restart: unless-stopped
+    depends_on:
+      cloud-sql-proxy:
+        condition: service_healthy
+      finguard-redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: finguard-redpanda:9092
+      KAFKA_TOPIC_TRANSACTIONS: ${KAFKA_TOPIC_TRANSACTIONS:-fin_transactions}
+      PG_HOST: cloud-sql-proxy
+      PG_PORT: 5432
+      PG_USER: ${PG_USER:-finguard}
+      PG_PASSWORD: ${PG_PASSWORD}
+      PG_DB: ${PG_DB:-finguard_oltp}
+    networks:
+      - finguard-network
+
+  # 5. PySpark Structured Streaming Consumer
+  finguard-spark:
+    build:
+      context: ..
+      dockerfile: docker/spark/Dockerfile
+    image: finguard-spark:latest
+    container_name: finguard-spark
+    restart: unless-stopped
+    depends_on:
+      cloud-sql-proxy:
+        condition: service_healthy
+      finguard-redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: finguard-redpanda:9092
+      KAFKA_TOPIC_TRANSACTIONS: ${KAFKA_TOPIC_TRANSACTIONS:-fin_transactions}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
+      PG_HOST: cloud-sql-proxy
+      PG_PORT: 5432
+      PG_USER: ${PG_USER:-finguard}
+      PG_PASSWORD: ${PG_PASSWORD}
+      PG_DB: ${PG_DB:-finguard_oltp}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      CHECKPOINT_BASE: /app/data/checkpoints
+    volumes:
+      - ../data:/app/data
+    networks:
+      - finguard-network
+
+  # 6. Airflow Metadata Database (internal to Airflow)
+  finguard-airflow-db:
+    image: postgres:16-alpine
+    container_name: finguard-airflow-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+    volumes:
+      - airflow-pg-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-airflow} -d ${POSTGRES_DB:-airflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - finguard-network
+
+  # 7. Airflow Init (DB migration & admin user setup)
+  airflow-init:
+    build:
+      context: ../airflow
+      dockerfile: Dockerfile
+    image: finguard-airflow:2.10.4
+    container_name: finguard-airflow-init
+    depends_on:
+      finguard-airflow-db:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@finguard-airflow-db:5432/${POSTGRES_DB:-airflow}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-admin}
+    command: version
+    restart: on-failure
+    networks:
+      - finguard-network
+
+  # 8. Airflow Webserver — Bound to 127.0.0.1:8080 for IAP SSH port-forwarding only
+  airflow-webserver:
+    build:
+      context: ../airflow
+      dockerfile: Dockerfile
+    image: finguard-airflow:2.10.4
+    container_name: finguard-airflow-webserver
+    restart: always
+    command: webserver
+    depends_on:
+      finguard-airflow-db:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      cloud-sql-proxy:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@finguard-airflow-db:5432/${POSTGRES_DB:-airflow}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
+      AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: google-cloud-platform://?project=${GCP_PROJECT_ID}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
+      BQ_DATASET_RAW: ${BQ_DATASET_RAW:-finguard_raw}
+      PG_HOST: cloud-sql-proxy
+      PG_PORT: 5432
+      PG_USER: ${PG_USER:-finguard}
+      PG_PASSWORD: ${PG_PASSWORD}
+      PG_DB: ${PG_DB:-finguard_oltp}
+      PYTHONPATH: /opt/airflow:/opt/airflow/scripts
+      DBT_PROFILES_DIR: /opt/airflow/dbt
+      DBT_TARGET: ${DBT_TARGET:-prod}
+      AIRFLOW_BASE_URL: ${AIRFLOW_BASE_URL:-http://localhost:8080}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_REPO: ${GITHUB_REPO:-tuanpmdev156/finguard-streaming}
+      GITHUB_WORKFLOW_FILE: ${GITHUB_WORKFLOW_FILE:-deploy-evidence.yml}
+      GITHUB_BRANCH: ${GITHUB_BRANCH:-main}
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags
+      - ../airflow/logs:/opt/airflow/logs
+      - ../airflow/plugins:/opt/airflow/plugins
+      - ../data:/opt/airflow/data
+      - ../scripts:/opt/airflow/scripts:ro
+      - ../dbt_finguard_streaming:/opt/airflow/dbt
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - finguard-network
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # 9. Airflow Scheduler
+  airflow-scheduler:
+    build:
+      context: ../airflow
+      dockerfile: Dockerfile
+    image: finguard-airflow:2.10.4
+    container_name: finguard-airflow-scheduler
+    restart: always
+    command: scheduler
+    depends_on:
+      finguard-airflow-db:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      cloud-sql-proxy:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@finguard-airflow-db:5432/${POSTGRES_DB:-airflow}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
+      AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: google-cloud-platform://?project=${GCP_PROJECT_ID}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
+      BQ_DATASET_RAW: ${BQ_DATASET_RAW:-finguard_raw}
+      PG_HOST: cloud-sql-proxy
+      PG_PORT: 5432
+      PG_USER: ${PG_USER:-finguard}
+      PG_PASSWORD: ${PG_PASSWORD}
+      PG_DB: ${PG_DB:-finguard_oltp}
+      PYTHONPATH: /opt/airflow:/opt/airflow/scripts
+      DBT_PROFILES_DIR: /opt/airflow/dbt
+      DBT_TARGET: ${DBT_TARGET:-prod}
+      AIRFLOW_BASE_URL: ${AIRFLOW_BASE_URL:-http://localhost:8080}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_REPO: ${GITHUB_REPO:-tuanpmdev156/finguard-streaming}
+      GITHUB_WORKFLOW_FILE: ${GITHUB_WORKFLOW_FILE:-deploy-evidence.yml}
+      GITHUB_BRANCH: ${GITHUB_BRANCH:-main}
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags
+      - ../airflow/logs:/opt/airflow/logs
+      - ../airflow/plugins:/opt/airflow/plugins
+      - ../data:/opt/airflow/data
+      - ../scripts:/opt/airflow/scripts:ro
+      - ../dbt_finguard_streaming:/opt/airflow/dbt
+    networks:
+      - finguard-network
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+networks:
+  finguard-network:
+    name: finguard-network
+    driver: bridge
+
+volumes:
+  finguard_redpanda_data:
+    name: finguard_redpanda_data
+  airflow-pg-volume:
+    name: airflow-pg-volume
+

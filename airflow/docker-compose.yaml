@@ -54,8 +54,8 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqJZPo=}
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY:-finguard_secret_key_291026}
-      GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/credentials/pipeline-sa-key.json
-      AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: google-cloud-platform://?key_path=/opt/airflow/credentials/pipeline-sa-key.json&project=${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/credentials/finguard-sa-key.json
+      AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: google-cloud-platform://?key_path=/opt/airflow/credentials/finguard-sa-key.json&project=${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
       GCP_PROJECT_ID: ${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-finguard-streaming-291026-bucket}
       BQ_DATASET_RAW: ${BQ_DATASET_RAW:-finguard_raw}
@@ -109,8 +109,8 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqJZPo=}
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY:-finguard_secret_key_291026}
-      GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/credentials/pipeline-sa-key.json
-      AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: google-cloud-platform://?key_path=/opt/airflow/credentials/pipeline-sa-key.json&project=${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/credentials/finguard-sa-key.json
+      AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: google-cloud-platform://?key_path=/opt/airflow/credentials/finguard-sa-key.json&project=${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
       GCP_PROJECT_ID: ${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-finguard-streaming-291026-bucket}
       BQ_DATASET_RAW: ${BQ_DATASET_RAW:-finguard_raw}
