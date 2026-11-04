@@ -174,6 +174,7 @@ resource "google_sql_database_instance" "finguard_pg" {
   deletion_protection = false # Allow `terraform destroy` after demo
 
   settings {
+    edition           = "ENTERPRISE"
     tier              = var.cloudsql_tier
     availability_type = "ZONAL"
     disk_type         = var.cloudsql_disk_type
