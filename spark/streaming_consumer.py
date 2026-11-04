@@ -4,8 +4,8 @@ Reads from Redpanda ('fin_transactions'), applies Watermarking & Sliding Window
 for Velocity Fraud detection, triggers Slack alerts, and writes Snappy Parquet to GCS.
 
 Usage:
-    uv run python spark/streaming_fraud_processor.py
-    uv run python spark/streaming_fraud_processor.py --local
+    uv run python spark/streaming_consumer.py
+    uv run python spark/streaming_consumer.py --local
 """
 
 import io
@@ -43,10 +43,10 @@ LOCAL_MODE = "--local" in sys.argv
 PG_HOST = os.getenv("PG_HOST", "localhost")
 PG_PORT = os.getenv("PG_PORT", "5432")
 PG_USER = os.getenv("PG_USER", "finguard")
-PG_PASSWORD = os.getenv("PG_PASSWORD", "finguard_pass")
+PG_PASSWORD = os.getenv("PG_PASSWORD", "")
 PG_DB = os.getenv("PG_DB", "finguard_oltp")
 
-CHECKPOINT_BASE = Path("data/checkpoints")
+CHECKPOINT_BASE = os.getenv("CHECKPOINT_BASE", "data/checkpoints").rstrip("/")
 LOCAL_OUTPUT_DIR = Path("data/streaming_transactions")
 
 # 2. Strict JSON Schema matching scripts/transaction_producer.py
@@ -339,7 +339,7 @@ def main() -> None:
     velocity_query = (
         velocity_window_stream.writeStream.outputMode("update")
         .foreachBatch(process_velocity_window_batch)
-        .option("checkpointLocation", str(CHECKPOINT_BASE / "velocity_window"))
+        .option("checkpointLocation", f"{CHECKPOINT_BASE}/velocity_window")
         .trigger(processingTime="30 seconds")
         .start()
     )
@@ -348,7 +348,7 @@ def main() -> None:
     sink_query = (
         parsed_stream.writeStream.outputMode("append")
         .foreachBatch(process_transactions_batch)
-        .option("checkpointLocation", str(CHECKPOINT_BASE / "parquet_sink"))
+        .option("checkpointLocation", f"{CHECKPOINT_BASE}/parquet_sink")
         .trigger(processingTime="30 seconds")
         .start()
     )

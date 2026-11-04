@@ -1,5 +1,5 @@
 """
-Simulate day-to-day changes on reference data (run after seed_postgres.py):
+Simulate day-to-day changes on reference data (run after postgres_seed_data.py):
     1. New customers sign up (1 card each)
     2. Some active cards get blocked (lost / stolen)
     3. Some active cards get a credit limit change
@@ -7,7 +7,7 @@ Simulate day-to-day changes on reference data (run after seed_postgres.py):
 No seed => every run produces different changes.
 
 Usage:
-    uv run python scripts/incremental_postgres.py
+    uv run python scripts/postgres_incremental_load.py
 """
 
 import random

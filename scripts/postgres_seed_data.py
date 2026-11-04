@@ -7,7 +7,7 @@ Seed reference data (customers, cards, merchants) into PostgreSQL using Faker.
   blocked / expired cards, foreign merchants, high-risk MCCs.
 
 Usage:
-    uv run python scripts/seed_postgres.py
+    uv run python scripts/postgres_seed_data.py
 """
 
 import random

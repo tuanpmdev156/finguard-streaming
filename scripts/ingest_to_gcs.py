@@ -9,8 +9,8 @@ For each table:
                   (same path overwritten every run => idempotent, BigQuery external tables point here)
 
 Usage:
-    uv run python scripts/sync_reference_to_gcs.py
-    uv run python scripts/sync_reference_to_gcs.py --local   # write to data/reference/ instead of GCS
+    uv run python scripts/ingest_to_gcs.py
+    uv run python scripts/ingest_to_gcs.py --local   # write to data/reference/ instead of GCS
 """
 
 import os

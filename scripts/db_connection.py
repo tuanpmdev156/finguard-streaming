@@ -17,7 +17,7 @@ def pg_cursor():
         host=os.getenv("PG_HOST", "localhost"),
         port=os.getenv("PG_PORT", "5432"),
         user=os.getenv("PG_USER", "finguard"),
-        password=os.getenv("PG_PASSWORD", "finguard_pass"),
+        password=os.environ["PG_PASSWORD"],
         dbname=os.getenv("PG_DB", "finguard_oltp"),
     )
     try:

@@ -1,6 +1,7 @@
 """Airflow DAG: finguard_orchestrator
 
 Hybrid Orchestration Pipeline for FinGuard Streaming Fraud Detection:
+0. Simulate OLTP Reference Data Changes (new customers/cards, blocked cards, credit limit updates).
 1. Sync Reference Data (PostgreSQL -> PyArrow Schema Validation -> GCS Snappy Parquet).
 2. Verify PySpark Structured Streaming Parquet files exist on GCS.
 3. Provision/Refresh BigQuery External Tables in 'finguard_raw'.
@@ -32,6 +33,8 @@ from airflow.providers.google.cloud.operators.bigquery import (  # type: ignore[
 GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "fraud-risk-analytics-131026")
 GCS_BUCKET = os.environ.get("GCS_BUCKET_NAME", "finguard-streaming-291026-bucket")
 BQ_DATASET_RAW = os.environ.get("BQ_DATASET_RAW", "finguard_raw")
+AIRFLOW_BASE_URL = os.environ.get("AIRFLOW_BASE_URL", "http://localhost:8080").rstrip("/")
+AIRFLOW_DAG_SCHEDULE = os.environ.get("AIRFLOW_DAG_SCHEDULE", "@hourly")
 
 AIRFLOW_HOME = Path(os.environ.get("AIRFLOW_HOME", "/opt/airflow"))
 SCRIPTS_DIR = AIRFLOW_HOME / "scripts"
@@ -67,7 +70,7 @@ def slack_alert_on_failure(context) -> None:
 
     encoded_run_id = urllib.parse.quote(ti.run_id, safe="")
     log_url = (
-        f"http://localhost:8080/dags/{dag_id}/grid"
+        f"{AIRFLOW_BASE_URL}/dags/{dag_id}/grid"
         f"?tab=logs&dag_run_id={encoded_run_id}&task_id={task_id}"
     )
     exception = context.get("exception", "No exception message provided")
@@ -122,13 +125,20 @@ def slack_alert_on_failure(context) -> None:
         print(f"[ERROR] Failed to send Slack alert: {exc}")
 
 
+def simulate_reference_changes(**context) -> None:
+    """Step 0: Simulate day-to-day OLTP reference data changes before syncing to GCS."""
+    if SIMULATE_FAIL_TASK == "simulate_reference_changes":
+        raise RuntimeError("SIMULATED ERROR at simulate_reference_changes")
+
+    from scripts.postgres_incremental_load import main as run_incremental_load
+
+    run_incremental_load()
+
+
 def sync_reference_data_to_gcs(**context) -> None:
     """Step 1: Extract reference tables from PostgreSQL, validate via PyArrow, upload to GCS."""
     if SIMULATE_FAIL_TASK == "sync_reference_to_gcs":
         raise RuntimeError("SIMULATED ERROR at sync_reference_to_gcs")
-
-    if os.environ.get("PG_HOST") in (None, "", "localhost", "127.0.0.1"):
-        os.environ["PG_HOST"] = "finguard-postgres"
 
     from scripts.ingest_to_gcs import main as run_ingest_to_gcs
 
@@ -213,11 +223,17 @@ with DAG(
     dag_id="finguard_orchestrator",
     default_args=default_args,
     description="Hybrid ELT Orchestrator: Postgres Reference + PySpark Streaming GCS -> BigQuery -> dbt -> Evidence",
-    schedule_interval=None,
+    schedule_interval=AIRFLOW_DAG_SCHEDULE,
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
 ) as dag:
+
+    # 0. Simulate OLTP Reference Data Changes (PostgreSQL incremental updates)
+    task_simulate_reference = PythonOperator(
+        task_id="simulate_reference_changes",
+        python_callable=simulate_reference_changes,
+    )
 
     # 1. Sync Reference Tables (PostgreSQL -> GCS Parquet)
     task_sync_reference = PythonOperator(
@@ -306,7 +322,7 @@ with DAG(
     # -----------------------------------------------------------------------
     # Task Dependencies Graph
     # -----------------------------------------------------------------------
-    task_sync_reference >> create_ref_ext_tasks >> task_audit_reference
+    task_simulate_reference >> task_sync_reference >> create_ref_ext_tasks >> task_audit_reference
     task_verify_streaming_gcs >> task_create_ext_streaming >> task_audit_streaming
     [task_audit_reference, task_audit_streaming] >> task_dbt_run >> task_dbt_test >> task_trigger_evidence
 

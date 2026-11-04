@@ -19,6 +19,33 @@ services:
     networks:
       - finguard-network
 
+  # 1b. Cloud SQL Schema Bootstrap (runs init_tables.sql idempotently via Auth Proxy)
+  finguard-pg-init:
+    image: postgres:16-alpine
+    container_name: finguard-pg-init
+    depends_on:
+      cloud-sql-proxy:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${PG_PASSWORD}
+    volumes:
+      - ./postgres/init_tables.sql:/init_tables.sql:ro
+    command:
+      - psql
+      - -h
+      - cloud-sql-proxy
+      - -p
+      - "5432"
+      - -U
+      - ${PG_USER:-finguard}
+      - -d
+      - ${PG_DB:-finguard_oltp}
+      - -f
+      - /init_tables.sql
+    restart: on-failure
+    networks:
+      - finguard-network
+
   # 2. Redpanda Broker
   finguard-redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
@@ -72,6 +99,8 @@ services:
     depends_on:
       cloud-sql-proxy:
         condition: service_healthy
+      finguard-pg-init:
+        condition: service_completed_successfully
       finguard-redpanda:
         condition: service_healthy
     environment:
@@ -96,6 +125,8 @@ services:
     depends_on:
       cloud-sql-proxy:
         condition: service_healthy
+      finguard-pg-init:
+        condition: service_completed_successfully
       finguard-redpanda:
         condition: service_healthy
     environment:
@@ -109,7 +140,7 @@ services:
       PG_PASSWORD: ${PG_PASSWORD}
       PG_DB: ${PG_DB:-finguard_oltp}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
-      CHECKPOINT_BASE: /app/data/checkpoints
+      CHECKPOINT_BASE: ${CHECKPOINT_BASE:-/app/data/checkpoints}
     volumes:
       - ../data:/app/data
     networks:

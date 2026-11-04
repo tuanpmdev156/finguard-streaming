@@ -48,24 +48,28 @@ services:
         condition: service_healthy
       airflow-init:
         condition: service_completed_successfully
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@finguard-airflow-db:5432/${POSTGRES_DB:-airflow}
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqJZPo=}
-      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY:-finguard_secret_key_291026}
-      GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/credentials/finguard-sa-key.json
-      AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: google-cloud-platform://?key_path=/opt/airflow/credentials/finguard-sa-key.json&project=${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
+      AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: ${AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT:-google-cloud-platform://?project=${GCP_PROJECT_ID:-fraud-risk-analytics-131026}}
       GCP_PROJECT_ID: ${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-finguard-streaming-291026-bucket}
       BQ_DATASET_RAW: ${BQ_DATASET_RAW:-finguard_raw}
-      PG_HOST: finguard-postgres
-      PG_PORT: 5432
+      PG_HOST: ${PG_HOST:-finguard-postgres}
+      PG_PORT: ${PG_PORT:-5432}
       PG_USER: ${PG_USER:-finguard}
-      PG_PASSWORD: ${PG_PASSWORD:-finguard_pass}
+      PG_PASSWORD: ${PG_PASSWORD}
       PG_DB: ${PG_DB:-finguard_oltp}
       PYTHONPATH: /opt/airflow:/opt/airflow/scripts
       DBT_PROFILES_DIR: /opt/airflow/dbt
+      DBT_TARGET: ${DBT_TARGET:-dev}
+      AIRFLOW_BASE_URL: ${AIRFLOW_BASE_URL:-http://localhost:8080}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_REPO: ${GITHUB_REPO:-tuanpmdev156/finguard-streaming}
@@ -103,24 +107,28 @@ services:
         condition: service_healthy
       airflow-init:
         condition: service_completed_successfully
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@finguard-airflow-db:5432/${POSTGRES_DB:-airflow}
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqJZPo=}
-      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY:-finguard_secret_key_291026}
-      GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/credentials/finguard-sa-key.json
-      AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: google-cloud-platform://?key_path=/opt/airflow/credentials/finguard-sa-key.json&project=${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
+      AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: ${AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT:-google-cloud-platform://?project=${GCP_PROJECT_ID:-fraud-risk-analytics-131026}}
       GCP_PROJECT_ID: ${GCP_PROJECT_ID:-fraud-risk-analytics-131026}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-finguard-streaming-291026-bucket}
       BQ_DATASET_RAW: ${BQ_DATASET_RAW:-finguard_raw}
-      PG_HOST: finguard-postgres
-      PG_PORT: 5432
+      PG_HOST: ${PG_HOST:-finguard-postgres}
+      PG_PORT: ${PG_PORT:-5432}
       PG_USER: ${PG_USER:-finguard}
-      PG_PASSWORD: ${PG_PASSWORD:-finguard_pass}
+      PG_PASSWORD: ${PG_PASSWORD}
       PG_DB: ${PG_DB:-finguard_oltp}
       PYTHONPATH: /opt/airflow:/opt/airflow/scripts
       DBT_PROFILES_DIR: /opt/airflow/dbt
+      DBT_TARGET: ${DBT_TARGET:-dev}
+      AIRFLOW_BASE_URL: ${AIRFLOW_BASE_URL:-http://localhost:8080}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_REPO: ${GITHUB_REPO:-tuanpmdev156/finguard-streaming}
