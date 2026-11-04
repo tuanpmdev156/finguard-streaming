@@ -1,0 +1,6 @@
+name: bigquery
+type: bigquery
+options:
+  authenticator: service-account
+  location: us-central1
+
