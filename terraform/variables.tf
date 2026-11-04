@@ -104,3 +104,48 @@ variable "vm_app_user" {
   type        = string
   default     = "finguard"
 }
+
+# --- Phase 2: Cloud SQL (PostgreSQL 16 OLTP) Variables ---
+
+variable "cloudsql_instance_name" {
+  description = "Name of the Cloud SQL PostgreSQL instance"
+  type        = string
+  default     = "finguard-pg"
+}
+
+variable "cloudsql_tier" {
+  description = "Machine tier for Cloud SQL (db-f1-micro is cheapest shared-core for demo)"
+  type        = string
+  default     = "db-f1-micro"
+}
+
+variable "cloudsql_disk_type" {
+  description = "Disk type for Cloud SQL (PD_HDD or PD_SSD)"
+  type        = string
+  default     = "PD_HDD"
+}
+
+variable "cloudsql_disk_size_gb" {
+  description = "Disk size in GB for Cloud SQL"
+  type        = number
+  default     = 10
+}
+
+variable "cloudsql_db_name" {
+  description = "PostgreSQL OLTP database name"
+  type        = string
+  default     = "finguard_oltp"
+}
+
+variable "cloudsql_user" {
+  description = "PostgreSQL application user"
+  type        = string
+  default     = "finguard"
+}
+
+variable "pg_password_secret_id" {
+  description = "Secret Manager secret ID storing the Cloud SQL password"
+  type        = string
+  default     = "finguard-pg-password"
+}
+

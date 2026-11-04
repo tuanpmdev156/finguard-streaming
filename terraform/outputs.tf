@@ -48,3 +48,14 @@ output "vm_ui_tunnel_command" {
   value       = "gcloud compute ssh ${google_compute_instance.finguard_vm.name} --project=${var.project_id} --zone=${google_compute_instance.finguard_vm.zone} --tunnel-through-iap -- -L 8080:localhost:8080 -L 8081:localhost:8081"
 }
 
+output "cloudsql_connection_name" {
+  description = "Cloud SQL connection name (PROJECT:REGION:INSTANCE) for Cloud SQL Auth Proxy"
+  value       = google_sql_database_instance.finguard_pg.connection_name
+}
+
+output "pg_password_secret_id" {
+  description = "Secret Manager secret ID storing the Cloud SQL password"
+  value       = google_secret_manager_secret.pg_password.secret_id
+}
+
+

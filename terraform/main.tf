@@ -1,8 +1,8 @@
 # 0. Enable required GCP APIs
 resource "google_project_service" "apis" {
-  for_each = toset(var.gcp_api_services)
-  project = var.project_id
-  service = each.value
+  for_each                   = toset(var.gcp_api_services)
+  project                    = var.project_id
+  service                    = each.value
   disable_on_destroy         = false # destroy does not disable API (avoid breaking other resources/ next apply)
   disable_dependent_services = false
 }
@@ -91,6 +91,13 @@ resource "google_project_iam_member" "pipeline_sa_secret_accessor" {
   member  = "serviceAccount:${data.google_service_account.pipeline_sa.email}"
 }
 
+# IAM: Cloud SQL Client — allow Cloud SQL Auth Proxy on VM to connect to Cloud SQL via IAM
+resource "google_project_iam_member" "pipeline_sa_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${data.google_service_account.pipeline_sa.email}"
+}
+
 # 4. Firewall: Allow SSH only via Google Cloud IAP (35.235.240.0/20)
 resource "google_compute_firewall" "allow_iap_ssh" {
   name        = "finguard-allow-iap-ssh"
@@ -155,6 +162,70 @@ resource "google_compute_instance" "finguard_vm" {
     google_project_iam_member.pipeline_sa_logging,
     google_project_iam_member.pipeline_sa_monitoring,
     google_project_iam_member.pipeline_sa_secret_accessor,
+    google_project_iam_member.pipeline_sa_cloudsql_client,
   ]
 }
+
+# 6. Cloud SQL for PostgreSQL 16 (OLTP Reference Database — replaces local finguard-postgres container)
+resource "google_sql_database_instance" "finguard_pg" {
+  name                = var.cloudsql_instance_name
+  database_version    = "POSTGRES_16"
+  region              = var.region
+  deletion_protection = false # Allow `terraform destroy` after demo
+
+  settings {
+    tier              = var.cloudsql_tier
+    availability_type = "ZONAL"
+    disk_type         = var.cloudsql_disk_type
+    disk_size         = var.cloudsql_disk_size_gb
+    disk_autoresize   = true
+
+    backup_configuration {
+      enabled                        = true
+      point_in_time_recovery_enabled = true
+    }
+
+    ip_configuration {
+      # Public IP enabled ONLY for Cloud SQL Auth Proxy (IAM + TLS);
+      # no authorized_networks configured so direct connections are blocked.
+      ipv4_enabled = true
+    }
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_sql_database" "finguard_oltp" {
+  name     = var.cloudsql_db_name
+  instance = google_sql_database_instance.finguard_pg.name
+}
+
+resource "random_password" "pg_password" {
+  length  = 24
+  special = false # Alphanumeric only to avoid URL/shell escaping issues in .env and JDBC/SQLAlchemy
+}
+
+resource "google_sql_user" "finguard" {
+  name     = var.cloudsql_user
+  instance = google_sql_database_instance.finguard_pg.name
+  password = random_password.pg_password.result
+}
+
+# 7. Secret Manager — Store Cloud SQL password securely
+resource "google_secret_manager_secret" "pg_password" {
+  secret_id = var.pg_password_secret_id
+  project   = var.project_id
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_version" "pg_password" {
+  secret      = google_secret_manager_secret.pg_password.id
+  secret_data = random_password.pg_password.result
+}
+
 
