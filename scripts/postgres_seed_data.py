@@ -104,16 +104,16 @@ def new_merchant(faker: Faker, random: random.Random) -> dict:
 
 
 def main() -> None:
-    faker, random = Faker(), random.Random(SEED)
+    faker, rng = Faker(), random.Random(SEED)
     faker.seed_instance(SEED)
 
-    customers = [new_customer(faker, random) for _ in range(N_CUSTOMERS)]
+    customers = [new_customer(faker, rng) for _ in range(N_CUSTOMERS)]
     cards = [
-        new_card(faker, random, c["customer_id"])
+        new_card(faker, rng, c["customer_id"])
         for c in customers
-        for _ in range(random.randint(1, 2))  # 1-2 cards per customer
+        for _ in range(rng.randint(1, 2))  # 1-2 cards per customer
     ]
-    merchants = [new_merchant(faker, random) for _ in range(N_MERCHANTS)]
+    merchants = [new_merchant(faker, rng) for _ in range(N_MERCHANTS)]
 
     with pg_cursor() as cur:
         cur.execute("TRUNCATE customers, cards, merchants CASCADE")

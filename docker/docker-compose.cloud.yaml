@@ -12,9 +12,9 @@ services:
       - "--http-port=9090"
       - "${CLOUDSQL_CONNECTION_NAME}"
     healthcheck:
-      test: ["CMD", "/cloud-sql-proxy", "wait", "--http-address=localhost", "--http-port=9090", "--max-wait=5s"]
+      test: ["CMD", "/cloud-sql-proxy", "wait", "--http-address=localhost", "--http-port=9090", "--max=5s"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 5
     networks:
       - finguard-network
