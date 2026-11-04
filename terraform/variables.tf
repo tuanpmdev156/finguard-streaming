@@ -37,3 +37,14 @@ variable "service_account_id" {
   type        = string
   default     = "pipeline-sa"
 }
+
+variable "gcp_api_services" {
+  description = "GCP APIs required for VM + Cloud SQL deployment"
+  type        = list(string)
+  default = [
+    "compute.googleapis.com",       # GCE VM, firewall
+    "iap.googleapis.com",           # IAP tunnel SSH
+    "secretmanager.googleapis.com", # Save Postgres password
+    "sqladmin.googleapis.com",      # Cloud SQL + Auth Proxy
+  ]
+}

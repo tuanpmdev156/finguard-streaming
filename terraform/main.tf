@@ -1,3 +1,13 @@
+# 0. Enable required GCP APIs
+resource "google_project_service" "apis" {
+  for_each = toset(var.gcp_api_services)
+  project = var.project_id
+  service = each.value
+  disable_on_destroy         = false # destroy does not disable API (avoid breaking other resources/ next apply)
+  disable_dependent_services = false
+}
+
+
 # 1. GCS Bucket — FinGuard Data Lake (raw/reference/, raw/streaming_transactions/, checkpoints/)
 resource "google_storage_bucket" "data_lake" {
   name                        = var.gcs_bucket_name
