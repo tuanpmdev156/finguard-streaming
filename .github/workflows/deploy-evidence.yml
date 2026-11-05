@@ -1,0 +1,89 @@
+name: Deploy Evidence Dashboard
+
+# Triggered by the Airflow DAG (trigger_evidence_deploy) after dbt run/test succeed,
+# on pushes that touch the dashboard, or manually from the Actions tab.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "evidence/**"
+      - ".github/workflows/deploy-evidence.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: evidence
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: evidence/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Map the service-account JSON (secret GCP_SA_KEY) to Evidence's BigQuery source options.
+      - name: Configure BigQuery credentials
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          if [ -z "$GCP_SA_KEY" ]; then
+            echo "::error::Secret GCP_SA_KEY is not set."
+            exit 1
+          fi
+          {
+            echo "EVIDENCE_SOURCE__bigquery__project_id=$(echo "$GCP_SA_KEY" | jq -r .project_id)"
+            echo "EVIDENCE_SOURCE__bigquery__client_email=$(echo "$GCP_SA_KEY" | jq -r .client_email)"
+            echo "EVIDENCE_SOURCE__bigquery__private_key<<EOF_PRIVATE_KEY"
+            echo "$GCP_SA_KEY" | jq -r .private_key
+            echo "EOF_PRIVATE_KEY"
+          } >> "$GITHUB_ENV"
+
+      - name: Extract data from BigQuery production marts
+        run: npm run sources
+
+      - name: Build static site
+        run: npm run build
+
+      # With deployment.basePath set, Evidence writes the site to build/<basePath>.
+      - name: Resolve build output directory
+        id: out
+        run: |
+          if [ -d build/finguard-streaming ]; then
+            echo "dir=evidence/build/finguard-streaming" >> "$GITHUB_OUTPUT"
+          else
+            echo "dir=evidence/build" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ steps.out.outputs.dir }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
