@@ -31,7 +31,7 @@ logs/
 # dbt
 target/
 dbt_packages/
-profiles.yml
+!dbt_finguard_streaming/profiles.yml
 
 # Airflow
 airflow/logs/*
