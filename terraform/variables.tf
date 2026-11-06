@@ -32,6 +32,12 @@ variable "bq_dataset_production" {
   default     = "finguard_production"
 }
 
+variable "bq_dataset_snapshots" {
+  description = "BigQuery dataset for dbt snapshots (SCD2)"
+  type        = string
+  default     = "finguard_snapshots"
+}
+
 variable "service_account_id" {
   description = "Existing Service Account ID for pipeline automation"
   type        = string

@@ -50,6 +50,18 @@ models:
           - not_null
           - accepted_values:
               values: ['Visa', 'Mastercard', 'Amex']
+      - name: is_card_active
+        description: "Card active status AT TRANSACTION TIME (point-in-time join on stg_cards_history)."
+        data_tests:
+          - not_null
+      - name: credit_limit
+        description: "Card credit limit AT TRANSACTION TIME (point-in-time join on stg_cards_history)."
+      - name: card_expiry_date
+        description: "Card expiry date AT TRANSACTION TIME (point-in-time join on stg_cards_history)."
+      - name: is_compromised_card
+        description: "TRUE if the card was inactive/expired at transaction time, or the stream flagged COMPROMISED_CARD."
+        data_tests:
+          - not_null
       - name: risk_tier
         description: "Computed fraud risk tier."
         data_tests:

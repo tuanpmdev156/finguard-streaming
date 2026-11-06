@@ -18,8 +18,14 @@ customers AS (
     SELECT * FROM {{ ref('stg_customers') }}
 ),
 
+-- Static card attributes (brand, type, masked number) – do not change over time
 cards AS (
     SELECT * FROM {{ ref('stg_cards') }}
+),
+
+-- Point-in-time card status (is_active, credit_limit, expiry_date) from SCD2 snapshot
+cards_history AS (
+    SELECT * FROM {{ ref('stg_cards_history') }}
 ),
 
 merchants AS (
@@ -45,9 +51,10 @@ enriched AS (
         COALESCE(ca.card_number_masked, '****') AS card_number_masked,
         COALESCE(ca.card_brand, 'Visa') AS card_brand,
         COALESCE(ca.card_type, 'CREDIT') AS card_type,
-        COALESCE(ca.credit_limit, 0.0) AS credit_limit,
-        COALESCE(ca.is_active, TRUE) AS is_card_active,
-        ca.expiry_date AS card_expiry_date,
+        -- Card status as of transaction time (point-in-time)
+        COALESCE(ch.credit_limit, 0.0) AS credit_limit,
+        COALESCE(ch.is_active, TRUE) AS is_card_active,
+        ch.expiry_date AS card_expiry_date,
 
         t.merchant_id,
         COALESCE(m.merchant_name, 'Unknown Merchant') AS merchant_name,
@@ -78,7 +85,7 @@ enriched AS (
 
         CASE
             WHEN t.amount > 5000.0
-              OR (ca.credit_limit > 0 AND t.amount > ca.credit_limit * 0.90)
+              OR (ch.credit_limit > 0 AND t.amount > ch.credit_limit * 0.90)
               OR t.stream_fraud_reason = 'HIGH_AMOUNT_SPIKE'
             THEN TRUE
             ELSE FALSE
@@ -92,8 +99,8 @@ enriched AS (
         END AS is_geo_mismatch,
 
         CASE
-            WHEN ca.is_active = FALSE
-              OR (ca.expiry_date IS NOT NULL AND ca.expiry_date < t.transaction_date)
+            WHEN ch.is_active = FALSE
+              OR (ch.expiry_date IS NOT NULL AND ch.expiry_date < t.transaction_date)
               OR t.stream_fraud_reason = 'COMPROMISED_CARD'
             THEN TRUE
             ELSE FALSE
@@ -103,6 +110,10 @@ enriched AS (
         ON t.customer_id = cu.customer_id
     LEFT JOIN cards AS ca
         ON t.card_id = ca.card_id
+    LEFT JOIN cards_history AS ch
+        ON t.card_id = ch.card_id
+       AND t.transaction_timestamp >= ch.valid_from
+       AND t.transaction_timestamp <  ch.valid_to
     LEFT JOIN merchants AS m
         ON t.merchant_id = m.merchant_id
 ),

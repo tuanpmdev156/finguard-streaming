@@ -32,19 +32,7 @@ def main() -> None:
         insert_rows(cur, "customers", customers)
         insert_rows(cur, "cards", cards)
 
-        # 2. Block random active cards
-        cur.execute(
-            """
-            UPDATE cards SET is_active = FALSE
-            WHERE card_id IN (
-                SELECT card_id FROM cards WHERE is_active ORDER BY random() LIMIT %s
-            )
-            """,
-            (N_BLOCKED_CARDS,),
-        )
-        blocked = cur.rowcount
-
-        # 3. Change credit limits by x0.5 .. x1.5 (rounded to 100, min 100)
+        # 2. Change credit limits by x0.5 .. x1.5 (rounded to 100, min 100)
         cur.execute(
             """
             UPDATE cards SET credit_limit = GREATEST(100, ROUND(credit_limit * (0.5 + random())::numeric, -2))
@@ -58,7 +46,7 @@ def main() -> None:
 
     print(
         f"Inserted {len(customers)} customers / {len(cards)} cards, "
-        f"blocked {blocked} cards, changed {limit_changes} credit limits"
+        f"Updated {limit_changes} credit limits"
     )
 
 

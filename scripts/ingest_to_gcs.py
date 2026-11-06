@@ -48,6 +48,7 @@ SCHEMAS = {
         ("is_active", pa.bool_()),
         ("expiry_date", pa.date32()),
         ("issued_at", timestamp),
+        ("updated_at", timestamp),
     ]),
     "merchants": pa.schema([
         ("merchant_id", pa.string()),

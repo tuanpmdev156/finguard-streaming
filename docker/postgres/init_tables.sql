@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS cards (
     credit_limit NUMERIC(12, 2) NOT NULL CHECK (credit_limit > 0),
     is_active BOOLEAN DEFAULT TRUE,
     expiry_date DATE NOT NULL,
-    issued_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    issued_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS merchants (
@@ -48,4 +49,9 @@ $$;
 DROP TRIGGER IF EXISTS trg_customers_update_timestamp ON customers;
 CREATE TRIGGER trg_customers_update_timestamp
 BEFORE UPDATE ON customers
+FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_cards_update_timestamp ON cards;
+CREATE TRIGGER trg_cards_update_timestamp
+BEFORE UPDATE ON cards
 FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();

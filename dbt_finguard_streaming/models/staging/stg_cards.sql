@@ -13,12 +13,13 @@ SELECT
     ROUND(CAST(credit_limit AS FLOAT64), 2) AS credit_limit,
     CAST(is_active AS BOOL) AS is_active,
     CAST(expiry_date AS DATE) AS expiry_date,
-    CAST(issued_at AS TIMESTAMP) AS issued_at
+    CAST(issued_at AS TIMESTAMP) AS issued_at,
+    CAST(updated_at AS TIMESTAMP) AS updated_at
 FROM raw_cards
 WHERE card_id IS NOT NULL
   AND customer_id IS NOT NULL
 QUALIFY ROW_NUMBER() OVER (
     PARTITION BY card_id
-    ORDER BY issued_at DESC
+    ORDER BY updated_at DESC, issued_at DESC
 ) = 1
 

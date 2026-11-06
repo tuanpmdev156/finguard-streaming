@@ -50,6 +50,14 @@ resource "google_bigquery_dataset" "production" {
   delete_contents_on_destroy = true
 }
 
+resource "google_bigquery_dataset" "snapshots" {
+  dataset_id                 = var.bq_dataset_snapshots
+  friendly_name              = "FinGuard dbt Snapshots"
+  description                = "dbt snapshots — SCD2 history (snap_cards) for point-in-time joins"
+  location                   = var.region
+  delete_contents_on_destroy = true
+}
+
 # 3. Reference Existing Pipeline Service Account (credentials/finguard-sa-key.json)
 data "google_service_account" "finguard-sa" {
   account_id = var.service_account_id

@@ -1,0 +1,20 @@
+version: 2
+
+snapshots:
+  - name: snap_cards
+    description: "SCD Type 2 history of card status (is_active, credit_limit, expiry_date) captured from stg_cards using the timestamp strategy on updated_at."
+    columns:
+      - name: card_id
+        description: "Payment card identifier (snapshot unique_key)."
+        data_tests:
+          - not_null
+      - name: updated_at
+        description: "Change timestamp from PostgreSQL; drives dbt_valid_from."
+        data_tests:
+          - not_null
+      - name: dbt_valid_from
+        description: "Timestamp from which this card version is valid."
+        data_tests:
+          - not_null
+      - name: dbt_valid_to
+        description: "Timestamp until which this card version is valid (NULL = current version)."

@@ -43,6 +43,39 @@ models:
           - not_null
           - accepted_values:
               values: ['CREDIT', 'DEBIT', 'PREPAID']
+      - name: updated_at
+        description: "Last time the card row changed in PostgreSQL (set by trigger trg_cards_update_timestamp). Used as the timestamp strategy column for snap_cards."
+        data_tests:
+          - not_null
+
+  - name: stg_cards_history
+    description: "Point-in-time card status history (SCD2) derived from snap_cards. Each row is valid in [valid_from, valid_to); the first version of each card is back-dated to 1900-01-01."
+    columns:
+      - name: card_id
+        description: "Payment card identifier."
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_cards')
+              field: card_id
+      - name: is_active
+        description: "Card active status during the validity window."
+      - name: credit_limit
+        description: "Card credit limit during the validity window."
+      - name: expiry_date
+        description: "Card expiry date during the validity window."
+      - name: snapshot_valid_from
+        description: "Original dbt_valid_from from snap_cards (before back-dating)."
+      - name: valid_from
+        description: "Inclusive start of the validity window."
+        data_tests:
+          - not_null
+      - name: valid_to
+        description: "Exclusive end of the validity window (9999-12-31 for the current version)."
+        data_tests:
+          - not_null
+      - name: is_current_version
+        description: "TRUE if this is the latest known version of the card."
 
   - name: stg_merchants
     description: "Cleaned and deduplicated merchant directory view."

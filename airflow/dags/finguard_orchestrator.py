@@ -6,7 +6,7 @@ Hybrid Orchestration Pipeline for FinGuard Streaming Fraud Detection:
 2. Verify PySpark Structured Streaming Parquet files exist on GCS.
 3. Provision/Refresh BigQuery External Tables in 'finguard_raw'.
 4. Execute Raw Data Quality Audit Gates (row counts & primary key null checks).
-5. Run dbt transformations (staging views, quarantine routing, production marts) & dbt tests.
+5. Run dbt snapshot (SCD2 card status), dbt transformations (staging views, quarantine routing, production marts) & dbt tests.
 6. Trigger GitHub Actions workflow_dispatch to update Evidence.dev BI Dashboard.
 """
 
@@ -302,7 +302,12 @@ with DAG(
         use_legacy_sql=False,
     )
 
-    # 5. dbt Transformations & Automated Tests
+    # 5. dbt Snapshot (SCD2 card status history), Transformations & Automated Tests
+    task_dbt_snapshot = BashOperator(
+        task_id="dbt_snapshot",
+        bash_command=f"dbt snapshot --project-dir {DBT_DIR} --profiles-dir {DBT_DIR}",
+    )
+
     task_dbt_run = BashOperator(
         task_id="dbt_run",
         bash_command=f"dbt run --project-dir {DBT_DIR} --profiles-dir {DBT_DIR}",
@@ -324,5 +329,5 @@ with DAG(
     # -----------------------------------------------------------------------
     task_simulate_reference >> task_sync_reference >> create_ref_ext_tasks >> task_audit_reference
     task_verify_streaming_gcs >> task_create_ext_streaming >> task_audit_streaming
-    [task_audit_reference, task_audit_streaming] >> task_dbt_run >> task_dbt_test >> task_trigger_evidence
+    [task_audit_reference, task_audit_streaming] >> task_dbt_snapshot >> task_dbt_run >> task_dbt_test >> task_trigger_evidence
 
