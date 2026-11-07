@@ -301,13 +301,10 @@ ORDER BY tier_order
 
 ```sql velocity_incidents
 SELECT
-    transaction_id,
     transaction_time_utc,
-    transaction_date,
     card_number_masked,
     card_brand,
     customer_name,
-    merchant_name,
     transaction_channel,
     transaction_country,
     amount,

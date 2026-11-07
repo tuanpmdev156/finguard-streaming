@@ -1,35 +1,19 @@
 SELECT
-    transaction_id,
     FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S UTC', transaction_timestamp) AS transaction_time_utc,
-    transaction_date,
-    transaction_hour,
-    card_id,
     card_number_masked,
     card_brand,
-    card_type,
-    is_card_active,
-    customer_id,
     customer_name,
-    customer_home_country,
-    customer_risk_profile,
-    merchant_name,
-    merchant_category,
-    mcc_code,
     transaction_channel,
     transaction_country,
-    transaction_city,
     amount,
-    amount_tier,
-    credit_limit,
     batch_card_tx_count,
     stream_fraud_reason,
     recommended_action,
     risk_score,
-    risk_tier,
-    is_velocity_attack,
-    is_high_amount_spike,
-    is_geo_mismatch,
-    is_compromised_card
+    risk_tier
 FROM `finguard_production.mart_velocity_incidents`
+WHERE transaction_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
 ORDER BY transaction_timestamp DESC, risk_score DESC
+LIMIT 5000
+
 
