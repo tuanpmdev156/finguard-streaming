@@ -1,8 +1,9 @@
 """
 Simulate day-to-day changes on reference data (run after postgres_seed_data.py):
     1. New customers sign up (1 card each)
-    2. Some active cards get blocked (lost / stolen)
-    3. Some active cards get a credit limit change
+    2. Some active cards get a credit limit change
+    3. Some blocked (non-expired) cards get unblocked / reissued
+       (simulates customer verification -> keeps active-card pool stable)
 
 No seed => every run produces different changes.
 
@@ -19,6 +20,8 @@ from postgres_seed_data import new_card, new_customer
 
 N_NEW_CUSTOMERS = 50
 N_LIMIT_CHANGES = 20
+N_UNBLOCKED_CARDS = 100  # tune so the active-card pool stays stable
+UNBLOCK_AFTER = "6 hours"  # min time a card stays blocked before reissue
 
 
 def main() -> None:
@@ -43,9 +46,27 @@ def main() -> None:
         )
         limit_changes = cur.rowcount
 
+        # 3. Reissue / unblock cards (customer verified) blocked > UNBLOCK_AFTER ago
+        #    -> keeps the active-card pool stable vs. Spark auto-freeze
+        cur.execute(
+            """
+            UPDATE cards SET is_active = TRUE
+            WHERE card_id IN (
+                SELECT card_id FROM cards
+                WHERE NOT is_active
+                  AND expiry_date >= CURRENT_DATE
+                  AND updated_at < NOW() - %s::interval
+                ORDER BY random() LIMIT %s
+            )
+            """,
+            (UNBLOCK_AFTER, N_UNBLOCKED_CARDS),
+        )
+        unblocked = cur.rowcount
+
     print(
         f"Inserted {len(customers)} customers / {len(cards)} cards, "
-        f"Updated {limit_changes} credit limits"
+        f"Updated {limit_changes} credit limits, "
+        f"Unblocked {unblocked} cards"
     )
 
 

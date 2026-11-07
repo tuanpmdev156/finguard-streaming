@@ -104,7 +104,7 @@ def build_event(card: dict,merchant: dict, amount: float, channel: str, scenario
 CHANNELS_WEIGHTS = {"POS": 50, "ATM": 15, "Online": 35}
 SCENARIO_WEIGHTS = {
     "NORMAL": 87,
-    "VELOCITY_ATTACK": 3,
+    "VELOCITY_ATTACK": 1,
     "HIGH_AMOUNT_SPIKE": 3,
     "GEO_MISMATCH": 3,
     "COMPROMISED_CARD": 3,

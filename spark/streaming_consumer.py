@@ -119,6 +119,7 @@ def auto_freeze_cards(card_ids: set[str]) -> set[str]:
                     UPDATE cards
                     SET is_active = FALSE
                     WHERE card_id = ANY(%s)
+                    AND is_active = TRUE
                     RETURNING card_id
                     """,
                     (list(card_ids),),
@@ -126,12 +127,12 @@ def auto_freeze_cards(card_ids: set[str]) -> set[str]:
                 frozen_ids = {row[0] for row in cur.fetchall()}
                 if frozen_ids:
                     short_ids = ", ".join(cid[:8] + "..." for cid in frozen_ids)
-                    print(f"🔒 [AUTO-FREEZE] Locked {len(frozen_ids)} card(s) in PostgreSQL OLTP: {short_ids}")
+                    print(f"[AUTO-FREEZE] Locked {len(frozen_ids)} card(s) in PostgreSQL OLTP: {short_ids}")
                 return frozen_ids
         finally:
             conn.close()
     except Exception as exc:
-        print(f"[WARN] Closed-loop auto-freeze failed: {exc}")
+        print(f"[WARN] Auto-freeze failed: {exc}")
         return set()
 
 
@@ -162,7 +163,8 @@ def write_parquet_sink(df_rows: list[dict], batch_id: int) -> str:
 
 
 def process_transactions_batch(batch_df: DataFrame, batch_id: int) -> None:
-    """Micro-batch processor: flag stream fraud rules, assign decision tiers, auto-freeze cards, and write Parquet."""
+    """Micro-batch processor: flag stream fraud rules, assign decision tiers, and write Parquet.
+    """
     if batch_df.isEmpty():
         return
     enriched_df = (
@@ -202,15 +204,16 @@ def process_transactions_batch(batch_df: DataFrame, batch_id: int) -> None:
     target_uri = write_parquet_sink(rows, batch_id)
 
     critical_events = [r for r in rows if r["stream_fraud_flag"]]
-    cards_to_freeze = {
+    # Velocity alerts are handled solely by the velocity window stream (process_velocity_window_batch)
+    # to avoid double-alerting the same card from two streaming queries.
+    freeze_candidates = {
         r["card_id"] for r in critical_events if r["recommended_action"] == "AUTO_FREEZE_CARD"
     }
-    frozen_cards = auto_freeze_cards(cards_to_freeze)
 
     print(
         f"[Batch {batch_id:>4}] Processed {len(rows):>4} tx | "
         f"Critical Fraud: {len(critical_events):>3} | "
-        f"Auto-Frozen Cards: {len(frozen_cards):>2} | Sink: {target_uri}"
+        f"Velocity Alerts: {len(freeze_candidates):>2} | Sink: {target_uri}"
     )
 
 
@@ -226,14 +229,15 @@ def process_velocity_window_batch(window_df: DataFrame, batch_id: int) -> None:
     for row in alerts:
         w_start = row["window"]["start"].strftime("%H:%M:%S")
         w_end = row["window"]["end"].strftime("%H:%M:%S")
-        freeze_status = "🔒 FROZEN" if row["card_id"] in frozen_cards else "⏳ PENDING_FREEZE"
+        # Not in frozen_cards => card was already inactive (UPDATE filters on is_active = TRUE)
+        freeze_status = "FROZEN" if row["card_id"] in frozen_cards else "ALREADY_FROZEN"
         msg = (
             f"[CRITICAL] Window `[{w_start} - {w_end}]` | "
             f"Card: `{row['card_id'][:8]}...` ({freeze_status}) | "
             f"Tx Count: `{row['tx_count']}` | Exposure: `${row['total_amount']:,.2f}` | "
             f"Action: `AUTO_FREEZE_CARD`"
         )
-        print(f"🚨 [VELOCITY WINDOW ALERT] {msg}")
+        print(f"[ALERT - VELOCITY WINDOW] {msg}")
 
 
 def main() -> None:
