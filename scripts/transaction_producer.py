@@ -74,6 +74,8 @@ def load_reference_cache():
         f"{len(compromised_cards)} compromised cards, "
         f"{len(all_merchants)} merchants across {len(merchants_by_country)} countries."
         )
+        if not active_cards:
+            print("[WARN] No active cards available. All scenarios will fall back to COMPROMISED_CARD.")
     
     return ReferenceCache(
         active_cards=active_cards,
@@ -125,6 +127,13 @@ def generate_batch_events(cache: ReferenceCache) -> list[dict]:
     """
     scenario = random.choices(list(SCENARIO_WEIGHTS.keys()), weights=list(SCENARIO_WEIGHTS.values()), k=1)[0]
     channel = random.choices(list(CHANNELS_WEIGHTS.keys()), weights=list(CHANNELS_WEIGHTS.values()), k=1)[0]
+
+    # Guard: avoid random.choice([]) when every card has been frozen/expired.
+    # Fall back to COMPROMISED_CARD so the label stays honest; skip if no cards at all.
+    if not cache.active_cards:
+        if not cache.compromised_cards:
+            return []
+        scenario = "COMPROMISED_CARD"
     
 
     # 1. Normal valid transaction (~87%)
@@ -187,7 +196,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="FinGuard Real-Time Transaction Producer")
     parser.add_argument("--tps", type=float, default=2.0, help="Transactions per second (default: 2.0)")
     parser.add_argument("--max-events", type=int, default=0, help="Stop after N events (0 = infinite)")
+    parser.add_argument(
+        "--refresh-seconds", type=int, default=300,
+        help="Reload card/merchant cache from PostgreSQL every N seconds (0 = never, default: 300)",
+    )
     return parser.parse_args()
+
+
+def refresh_reference_cache(current: ReferenceCache) -> ReferenceCache:
+    """Reload reference cache; on any DB error keep the current cache instead of crashing."""
+    try:
+        return load_reference_cache()
+    except Exception as exc:
+        print(f"[WARN] Cache refresh failed, keeping previous cache: {exc}")
+        return current
 
 
 def delivery_report(err, _msg) -> None:
@@ -231,13 +253,25 @@ def main() -> None:
     # Convert TPS (transactions/sec) to sleep seconds between normal events
     normal_delay = 1.0 / max(args.tps, 0.1)
     sent = 0
+    last_refresh = time.monotonic()
     print(f"Streaming to '{TOPIC}' ({BOOTSTRAP_SERVERS}) at ~{args.tps} TPS. Press Ctrl+C to stop.")
 
     try:
         # Keep streaming forever if max_events == 0, otherwise stop once sent reaches max_events
         while not args.max_events or sent < args.max_events:
+            # Periodically reload cards so frozen cards move to the compromised pool
+            if args.refresh_seconds > 0 and time.monotonic() - last_refresh >= args.refresh_seconds:
+                cache = refresh_reference_cache(cache)
+                last_refresh = time.monotonic()
+
             # Generate 1 event (normal/single fraud) or 4-6 events (VELOCITY_ATTACK burst)
             batch = generate_batch_events(cache)
+
+            # No cards available at all -> wait instead of busy-looping
+            if not batch:
+                print("[WARN] No cards available in cache, skipping event.")
+                time.sleep(normal_delay)
+                continue
 
             # Fire burst events rapidly (0.15s apart) to trigger Spark's velocity window;
             # otherwise wait according to the configured TPS rate

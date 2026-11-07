@@ -17,8 +17,7 @@ from faker import Faker
 from db_connection import insert_rows, pg_cursor
 from postgres_seed_data import new_card, new_customer
 
-N_NEW_CUSTOMERS = 20
-N_BLOCKED_CARDS = 10
+N_NEW_CUSTOMERS = 50
 N_LIMIT_CHANGES = 20
 
 
