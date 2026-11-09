@@ -1,5 +1,5 @@
 name: Deploy Evidence Dashboard
-
+run-name: Deploy Evidence Dashboard (Run #${{ github.run_number }} via ${{ github.event_name }})
 # Triggered by the Airflow DAG (trigger_evidence_deploy) after dbt run/test succeed,
 # on pushes that touch the dashboard, or manually from the Actions tab.
 on:
