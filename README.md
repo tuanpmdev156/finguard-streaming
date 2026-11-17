@@ -266,9 +266,3 @@ The dashboard has four parts:
 | A task still fails after retries | Airflow sends a Slack message with the DAG, task, error, and a link to the log |
 | Spark crashes or the VM restarts | Spark continues from its checkpoint. Containers restart by themselves |
 | Running the DAG again | Each step replaces its output (files and tables), so a rerun does not create duplicates |
-
-
-## 10. Acknowledgements
-
-- [DataTalksClub Data Engineering Zoomcamp](https://github.com/DataTalksClub/data-engineering-zoomcamp), for the course and the project idea.
-- [databeli/finguard_streaming_project](https://github.com/databeli/finguard_streaming_project), for the original FinGuard idea that inspired this project.
