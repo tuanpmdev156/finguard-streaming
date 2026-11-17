@@ -12,8 +12,6 @@
 ![dbt](https://img.shields.io/badge/dbt-BigQuery-FF694B)
 ![Terraform](https://img.shields.io/badge/Terraform-IaC-7B42BC)
 
-This is my final project for the [Data Engineering Zoomcamp](https://github.com/DataTalksClub/data-engineering-zoomcamp).
-
 ---
 
 ## 1. The problem
@@ -37,8 +35,6 @@ This project builds a pipeline that does all three. It looks for four kinds of f
 | **High amount spike** | One payment is much bigger than normal | A $6,000 payment, or more than 90% of the card limit |
 | **Geo mismatch** | A card is used in person in a country where the owner does not live | A card from Vietnam is used at an ATM in Germany |
 | **Compromised card** | A blocked or expired card is used | A card that was reported stolen is still being used |
-
-> All data is **fake** and is created by the project itself (with the Python library `Faker`). No real customer data is used.
 
 ---
 
@@ -152,7 +148,6 @@ Most payments are normal. A few are fraud on purpose, so we can test the pipelin
 | Compromised card | ~3% | A blocked or expired card is used |
 | Broken record | ~1% | Amount is 0 or negative (to test data cleaning) |
 
-Each message uses `card_id` as its key, so all payments for one card go to the same Redpanda partition.
 
 ### 4.3 Spark streaming: catch fraud live
 
@@ -272,103 +267,6 @@ The dashboard has four parts:
 | Spark crashes or the VM restarts | Spark continues from its checkpoint. Containers restart by themselves |
 | Running the DAG again | Each step replaces its output (files and tables), so a rerun does not create duplicates |
 
-To test the Slack alert, set `SIMULATE_FAIL_TASK=<task_id>` (for example `sync_reference_to_gcs`) and run the DAG. That task will fail on purpose.
-
----
-
-## 7. Cost and how to shut it down
-
-Rough cost in `us-central1` if everything runs all day, every day:
-
-| Resource | Size | About USD / month |
-|---|---|---|
-| VM | e2-standard-4, Spot | ~$30 (about $100 if not Spot) |
-| VM disk | 50 GB | ~$5 |
-| Cloud SQL | db-f1-micro + 10 GB | ~$9–12 |
-| GCS + BigQuery | small data | ~$0–1 |
-| **Total** | | **~$45–50** |
-
-To save money, turn things on only when you need them:
-
-```bash
-# Stop / start the VM
-gcloud compute instances stop finguard-vm --zone <zone>
-gcloud compute instances start finguard-vm --zone <zone>
-
-# Stop / start Cloud SQL
-gcloud sql instances patch finguard-pg --activation-policy=NEVER
-gcloud sql instances patch finguard-pg --activation-policy=ALWAYS
-```
-
-To delete everything:
-
-```bash
-terraform -chdir=terraform destroy
-```
-
-> ⚠️ `terraform destroy` also deletes Cloud SQL **and its backups**. Export the data first if you want to keep it.
-
----
-
-## 8. Troubleshooting
-
-Problems I hit while building this, and how I fixed them.
-
-**Redpanda Console shows no new messages, but the producer is running**
-
-You may be looking at a Console on your laptop, not the one on the VM. If Docker on your laptop already uses port `8081`, the SSH tunnel cannot use it. SSH only prints a short warning, so this is easy to miss. Forward to other local ports instead:
-
-```bash
-gcloud compute ssh finguard-vm --tunnel-through-iap -- -N -L 8085:localhost:8080 -L 8086:localhost:8081
-# Airflow: http://localhost:8085   Redpanda Console: http://localhost:8086
-```
-
-You can also check on the VM directly. Run this twice; `HIGH-WATERMARK` should go up:
-
-```bash
-sudo docker exec finguard-redpanda rpk topic describe fin_transactions -p
-```
-
-The Console's *Messages* tab does not refresh by itself. Set the start offset to **Newest**.
-
-**`dbt_run` fails with exit code 2 and no log**
-
-The Airflow container runs as user `50000`, which cannot write to the repo folder on the VM. Fix the owner:
-
-```bash
-docker exec -u root finguard-airflow-scheduler chown -R 50000:0 /opt/airflow/dbt /opt/airflow/logs
-```
-
-To check the dbt setup, run:
-
-```bash
-docker exec finguard-airflow-scheduler dbt debug --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt
-```
-
-**Airflow does not see a new value in `.env` (for example `GITHUB_TOKEN`)**
-
-Restarting is not enough. Recreate the containers:
-
-```bash
-docker compose --env-file .env -f docker/docker-compose.cloud.yaml up -d --force-recreate airflow-webserver airflow-scheduler
-```
-
-**`trigger_evidence_deploy` fails with HTTP 401**
-
-The GitHub token has expired. Create a new fine-grained token with **Actions: Read and write** on this repo, put it in `.env`, and recreate the Airflow containers as shown above.
-
----
-
-## 9. Future work
-
-- Add `chown -R 50000:0` to the VM startup script, so the dbt permission fix is not needed after a rebuild.
-- Store the GitHub token in Secret Manager instead of pasting it into `.env`.
-- Use Workload Identity Federation in GitHub Actions instead of a service account key.
-- Add a GitHub Actions job that deploys code changes to the VM on every push to `main`.
-- Send real-time Slack alerts from Spark for critical fraud events.
-- Test that after a VM reboot, all containers come back and Spark continues from its checkpoint.
-
----
 
 ## 10. Acknowledgements
 
